@@ -45,12 +45,19 @@ static const char *TAG = "BT13_MOTOR_CONTROL";
 static esp_bd_addr_t bt13_addr = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
 
 // Переменные управления двигателем
-static int motor_speed = 0;        // Скорость 0-255
-static bool motor_forward = true;  // Направление
+static int speed_level = 0;        // Уровень скорости от -10 до +10 (0 = стоп)
 static bool motor_enabled = false; // Состояние двигателя
-static const int speed_step = 25;   // Шаг изменения скорости
-static const int max_speed = 255;
-static const int min_speed = 0;
+static bool long_press_active = false; // Флаг длинного нажатия
+
+// Настройки управления
+static const int max_speed_level = 10;   // Максимальный уровень скорости
+static const int pwm_per_level = 25;     // PWM на уровень (255/10 ≈ 25)
+
+// Таймеры для определения длинного нажатия
+static uint64_t press_start_time = 0;
+static const uint64_t long_press_threshold = 500000; // 500мс в микросекундах
+static uint8_t current_pressed_button = 0;
+static bool button_pressed = false;
 
 // HID Host переменные
 static esp_hid_host_dev_t *hid_dev = NULL;
@@ -117,6 +124,9 @@ void app_main(void)
 
     // Основной цикл
     while (1) {
+        // Обработка длинных нажатий
+        check_long_press();
+        
         // Индикация состояния через LED
         if (bt13_connected && motor_enabled) {
             led_blink(1, 100);
@@ -124,7 +134,7 @@ void app_main(void)
             led_blink(1, 500);
         }
         
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(50)); // Уменьшили задержку для более точной обработки
     }
 }
 
@@ -165,61 +175,84 @@ static void motor_init(void)
     gpio_config(&io_conf);
 
     // Начальное состояние
-    motor_update_speed();
-    motor_update_direction();
+    motor_update_state();
     gpio_set_level(LED_PIN, 0);
 }
 
-static void motor_update_speed(void)
+static void motor_update_state(void)
 {
-    int actual_speed = motor_enabled ? motor_speed : 0;
+    // Вычисление PWM и направления на основе уровня скорости
+    int actual_speed = 0;
+    bool forward = true;
+    
+    if (motor_enabled && speed_level != 0) {
+        actual_speed = abs(speed_level) * pwm_per_level;
+        forward = (speed_level > 0);
+    }
+    
+    // Обновление PWM для скорости
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, actual_speed));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
     
-    ESP_LOGI(TAG, "Скорость: %d/%d, Состояние: %s", 
-             actual_speed, max_speed, motor_enabled ? "ВКЛ" : "ВЫКЛ");
+    // Обновление направления
+    gpio_set_level(MOTOR_DIR_PIN, forward ? 1 : 0);
+    
+    ESP_LOGI(TAG, "Состояние: %s | Уровень: %d/%d | PWM: %d/255 | Направление: %s%s", 
+             motor_enabled ? "ВКЛ" : "ВЫКЛ",
+             speed_level, max_speed_level,
+             actual_speed,
+             forward ? "ВПЕРЕД" : "НАЗАД",
+             long_press_active ? " | ДЛИННОЕ НАЖАТИЕ" : "");
 }
 
-static void motor_update_direction(void)
+static void short_press_plus(void)
 {
-    gpio_set_level(MOTOR_DIR_PIN, motor_forward ? 1 : 0);
-    ESP_LOGI(TAG, "Направление: %s", motor_forward ? "ВПЕРЕД" : "НАЗАД");
-}
-
-static void motor_increase_speed(void)
-{
-    if (!motor_enabled) {
+    if (speed_level < max_speed_level) {
+        speed_level++;
         motor_enabled = true;
-        ESP_LOGI(TAG, "Двигатель включен");
+        motor_update_state();
+        ESP_LOGI(TAG, "Короткое +: Уровень скорости = %d", speed_level);
     }
-    
-    motor_speed = (motor_speed + speed_step > max_speed) ? max_speed : motor_speed + speed_step;
-    motor_update_speed();
 }
 
-static void motor_decrease_speed(void)
+static void short_press_minus(void)
 {
-    motor_speed = (motor_speed - speed_step < min_speed) ? min_speed : motor_speed - speed_step;
-    
-    if (motor_speed == 0) {
-        motor_enabled = false;
-        ESP_LOGI(TAG, "Двигатель остановлен (скорость = 0)");
+    if (speed_level > -max_speed_level) {
+        speed_level--;
+        if (speed_level == 0) {
+            motor_enabled = false;
+        } else {
+            motor_enabled = true;
+        }
+        motor_update_state();
+        ESP_LOGI(TAG, "Короткое -: Уровень скорости = %d", speed_level);
     }
-    
-    motor_update_speed();
 }
 
-static void motor_toggle_direction(void)
+static void long_press_plus(void)
 {
-    motor_forward = !motor_forward;
-    motor_update_direction();
+    speed_level = max_speed_level;
+    motor_enabled = true;
+    long_press_active = true;
+    motor_update_state();
+    ESP_LOGI(TAG, "Длинное +: Максимальная скорость вперед");
+}
+
+static void long_press_minus(void)
+{
+    speed_level = -max_speed_level;
+    motor_enabled = true;
+    long_press_active = true;
+    motor_update_state();
+    ESP_LOGI(TAG, "Длинное -: Максимальная скорость назад");
 }
 
 static void motor_stop(void)
 {
-    motor_speed = 0;
+    speed_level = 0;
     motor_enabled = false;
-    motor_update_speed();
+    long_press_active = false;
+    motor_update_state();
     ESP_LOGI(TAG, "Двигатель остановлен");
 }
 
@@ -230,6 +263,62 @@ static void led_blink(int times, int delay_ms)
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
         gpio_set_level(LED_PIN, 0);
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+}
+
+static void handle_button_press(uint8_t key, bool pressed)
+{
+    if (pressed) {
+        // Кнопка нажата
+        button_pressed = true;
+        current_pressed_button = key;
+        press_start_time = esp_timer_get_time();
+        
+        if (key == 0xE9) { // Volume Up
+            ESP_LOGI(TAG, "Volume+ нажата");
+        } else if (key == 0xEA) { // Volume Down
+            ESP_LOGI(TAG, "Volume- нажата");
+        } else if (key == 0xCD) { // Play/Pause
+            ESP_LOGI(TAG, "Команда: СТОП");
+            motor_stop();
+        }
+    } else {
+        // Кнопка отпущена
+        if (button_pressed && current_pressed_button == key) {
+            uint64_t press_duration = esp_timer_get_time() - press_start_time;
+            button_pressed = false;
+            current_pressed_button = 0;
+            
+            if (long_press_active) {
+                // Завершение длинного нажатия - остановка
+                long_press_active = false;
+                motor_stop();
+                ESP_LOGI(TAG, "Длинное нажатие завершено - остановка");
+            } else if (press_duration < long_press_threshold) {
+                // Короткое нажатие
+                if (key == 0xE9) { // Volume Up
+                    short_press_plus();
+                } else if (key == 0xEA) { // Volume Down
+                    short_press_minus();
+                }
+            }
+        }
+    }
+}
+
+static void check_long_press(void)
+{
+    // Проверка длинного нажатия
+    if (button_pressed && !long_press_active && 
+        (esp_timer_get_time() - press_start_time) >= long_press_threshold) {
+        
+        long_press_active = true;
+        
+        if (current_pressed_button == 0xE9) { // Volume Up
+            long_press_plus();
+        } else if (current_pressed_button == 0xEA) { // Volume Down
+            long_press_minus();
+        }
     }
 }
 
@@ -305,31 +394,10 @@ static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, v
             uint8_t key_code = data->input.data[1];
             bool key_pressed = (data->input.data[0] != 0);
 
+            handle_button_press(key_code, key_pressed);
+            
+            // Мигание LED при получении команды
             if (key_pressed) {
-                ESP_LOGI(TAG, "Нажата кнопка: 0x%02X", key_code);
-                
-                switch (key_code) {
-                case 0xE9: // Volume Up (KEY_VOLUMEUP)
-                    ESP_LOGI(TAG, "Команда: Увеличить скорость");
-                    motor_increase_speed();
-                    break;
-                    
-                case 0xEA: // Volume Down (KEY_VOLUMEDOWN)
-                    ESP_LOGI(TAG, "Команда: Уменьшить скорость");
-                    motor_decrease_speed();
-                    break;
-                    
-                case 0xCD: // Play/Pause (KEY_PLAYPAUSE)
-                    ESP_LOGI(TAG, "Команда: Изменить направление");
-                    motor_toggle_direction();
-                    break;
-                    
-                default:
-                    ESP_LOGI(TAG, "Неизвестная команда: 0x%02X", key_code);
-                    break;
-                }
-                
-                // Мигание LED при получении команды
                 led_blink(1, 50);
             }
         }
