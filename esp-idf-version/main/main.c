@@ -266,6 +266,42 @@ static void led_blink(int times, int delay_ms)
     }
 }
 
+static void handle_hid_event(uint16_t usage, bool pressed)
+{
+    if (!pressed) return; // Обрабатываем только нажатия
+    
+    switch (usage) {
+        case 0x00B5: // Next Song (короткое нажатие +)
+            ESP_LOGI(TAG, "Короткое +: Увеличение уровня");
+            short_press_plus();
+            break;
+            
+        case 0x00B6: // Previous Song (короткое нажатие -)
+            ESP_LOGI(TAG, "Короткое -: Уменьшение уровня");
+            short_press_minus();
+            break;
+            
+        case 0x00E9: // Volume Up (длинное нажатие +)
+            ESP_LOGI(TAG, "Длинное +: Максимум вперед");
+            long_press_plus();
+            break;
+            
+        case 0x00EA: // Volume Down (длинное нажатие -)
+            ESP_LOGI(TAG, "Длинное -: Максимум назад");
+            long_press_minus();
+            break;
+            
+        case 0x00CD: // Play/Pause (средняя кнопка)
+            ESP_LOGI(TAG, "Средняя кнопка: СТОП");
+            motor_stop();
+            break;
+            
+        default:
+            ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
+            break;
+    }
+}
+
 static void handle_button_press(uint8_t key, bool pressed)
 {
     if (pressed) {
@@ -394,7 +430,13 @@ static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, v
             uint8_t key_code = data->input.data[1];
             bool key_pressed = (data->input.data[0] != 0);
 
-            handle_button_press(key_code, key_pressed);
+            // Обработка HID Consumer Control событий
+            if (data->input.length >= 3) {
+                uint16_t usage = (data->input.data[2] << 8) | data->input.data[1];
+                handle_hid_event(usage, key_pressed);
+            } else {
+                handle_button_press(key_code, key_pressed);
+            }
             
             // Мигание LED при получении команды
             if (key_pressed) {
