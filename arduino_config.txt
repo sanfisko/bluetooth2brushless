@@ -20,7 +20,7 @@
 └─────────────────────┴─────────────────────────────────────────────────────────────┘
 
 ДОПОЛНИТЕЛЬНЫЕ URL МЕНЕДЖЕРОВ ПЛАТ:
-https://raw.githubusercontent.com/espressif/arduino-esp32/master/package_esp32_index.json
+https://espressif.github.io/arduino-esp32/package_esp32_index.json
 
 ТРЕБУЕМЫЕ БИБЛИОТЕКИ:
 ┌─────────────────────┬─────────────┬─────────────────────────────────────────────────┐

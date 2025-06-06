@@ -14,7 +14,7 @@
 ```bash
 1. Скачай Arduino IDE 2.0+
 2. Файл → Настройки → Дополнительные ссылки:
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   https://espressif.github.io/arduino-esp32/package_esp32_index.json
 3. Инструменты → Менеджер плат → ESP32 → Установить
 4. Готово!
 ```
