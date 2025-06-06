@@ -28,18 +28,11 @@ const int resolution = 8;       // Разрешение 8 бит (0-255)
 // Переменные управления двигателем
 int speedLevel = 0;             // Уровень скорости от -10 до +10 (0 = стоп)
 bool motorEnabled = false;      // Состояние двигателя (включен/выключен)
-bool longPressActive = false;   // Флаг длинного нажатия
 
 // Настройки управления
 const int maxSpeedLevel = 10;   // Максимальный уровень скорости
 const int speedLevels = 21;     // Всего уровней: -10..0..+10
 const int pwmPerLevel = 25;     // PWM на уровень (255/10 ≈ 25)
-
-// Таймеры для определения длинного нажатия
-unsigned long pressStartTime = 0;
-const unsigned long longPressThreshold = 500; // 500мс для длинного нажатия
-uint8_t currentPressedButton = 0; // Текущая нажатая кнопка
-bool buttonPressed = false; // Флаг нажатия кнопки
 
 // MAC адрес пульта BT13
 uint8_t bt13_address[6] = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
@@ -124,8 +117,7 @@ void loop() {
     delay(5000);
   }
 
-  // Обработка длинных нажатий
-  checkLongPress();
+  // BT13 сам определяет длинные нажатия - checkLongPress больше не нужна
 
   // Индикация состояния через LED
   updateLEDStatus();
@@ -236,79 +228,54 @@ void processHIDData(String data) {
 
 // Обработка реальных HID событий от BT13
 void processHIDEvent(uint16_t usage, bool pressed) {
+  if (!pressed) return; // Обрабатываем только нажатия
+  
   switch (usage) {
-    case 0x00E9: // Volume Up (KEY_VOLUMEUP)
-      handleButtonPress(0xE9, pressed);
+    case 0x00B5: // Next Song (короткое нажатие +)
+      Serial.println("Короткое +: Увеличение уровня");
+      shortPressPlus();
       break;
       
-    case 0x00EA: // Volume Down (KEY_VOLUMEDOWN)  
-      handleButtonPress(0xEA, pressed);
+    case 0x00B6: // Previous Song (короткое нажатие -)
+      Serial.println("Короткое -: Уменьшение уровня");
+      shortPressMinus();
       break;
       
-    case 0x00CD: // Play/Pause (KEY_PLAYPAUSE)
-      if (pressed) {
-        Serial.println("Команда: СТОП");
-        stopMotor();
-      }
+    case 0x00E9: // Volume Up (длинное нажатие +)
+      Serial.println("Длинное +: Максимум вперед");
+      longPressPlus();
+      break;
+      
+    case 0x00EA: // Volume Down (длинное нажатие -)
+      Serial.println("Длинное -: Максимум назад");
+      longPressMinus();
+      break;
+      
+    case 0x00CD: // Play/Pause (средняя кнопка)
+      Serial.println("Средняя кнопка: СТОП");
+      stopMotor();
       break;
       
     default:
-      if (pressed) {
-        Serial.printf("Неизвестная HID команда: 0x%04X\n", usage);
-      }
+      Serial.printf("Неизвестная HID команда: 0x%04X\n", usage);
       break;
   }
 }
 
+// Упрощенная обработка - BT13 сам различает короткие/длинные нажатия
 void handleButtonPress(uint8_t key, bool pressed) {
+  // Эта функция теперь используется только для совместимости
+  // Основная обработка происходит в processHIDEvent()
   if (pressed) {
-    // Кнопка нажата
-    buttonPressed = true;
-    currentPressedButton = key;
-    pressStartTime = millis();
-    
-    if (key == 0xE9) { // Volume Up
-      Serial.println("Volume+ нажата");
-    } else if (key == 0xEA) { // Volume Down
-      Serial.println("Volume- нажата");
-    }
+    Serial.printf("Устаревший вызов: кнопка 0x%02X нажата\n", key);
   } else {
-    // Кнопка отпущена
-    if (buttonPressed && currentPressedButton == key) {
-      unsigned long pressDuration = millis() - pressStartTime;
-      buttonPressed = false;
-      currentPressedButton = 0;
-      
-      if (longPressActive) {
-        // Завершение длинного нажатия - остановка
-        longPressActive = false;
-        stopMotor();
-        Serial.println("Длинное нажатие завершено - остановка");
-      } else if (pressDuration < longPressThreshold) {
-        // Короткое нажатие
-        if (key == 0xE9) { // Volume Up
-          shortPressPlus();
-        } else if (key == 0xEA) { // Volume Down
-          shortPressMinus();
-        }
-      }
-    }
+    Serial.printf("Устаревший вызов: кнопка 0x%02X отпущена\n", key);
   }
 }
 
 void checkLongPress() {
-  // Проверка длинного нажатия
-  if (buttonPressed && !longPressActive && 
-      (millis() - pressStartTime) >= longPressThreshold) {
-    
-    longPressActive = true;
-    
-    if (currentPressedButton == 0xE9) { // Volume Up
-      longPressPlus();
-    } else if (currentPressedButton == 0xEA) { // Volume Down
-      longPressMinus();
-    }
-  }
+  // Функция больше не нужна - BT13 сам определяет длинные нажатия
+  // и отправляет соответствующие HID коды (VOLUME_UP/VOLUME_DOWN)
 }
 
 void shortPressPlus() {
@@ -338,7 +305,6 @@ void shortPressMinus() {
 void longPressPlus() {
   speedLevel = maxSpeedLevel;
   motorEnabled = true;
-  longPressActive = true;
   updateMotorState();
   Serial.println("Длинное +: Максимальная скорость вперед");
 }
@@ -346,7 +312,6 @@ void longPressPlus() {
 void longPressMinus() {
   speedLevel = -maxSpeedLevel;
   motorEnabled = true;
-  longPressActive = true;
   updateMotorState();
   Serial.println("Длинное -: Максимальная скорость назад");
 }
@@ -354,7 +319,6 @@ void longPressMinus() {
 void stopMotor() {
   speedLevel = 0;
   motorEnabled = false;
-  longPressActive = false;
   updateMotorState();
   Serial.println("Двигатель остановлен");
 }

@@ -268,40 +268,36 @@ static void led_blink(int times, int delay_ms)
 
 static void handle_hid_event(uint16_t usage, bool pressed)
 {
+    if (!pressed) return; // Обрабатываем только нажатия
+    
     switch (usage) {
-        case 0x00E9: // Volume Up (KEY_VOLUMEUP)
-            ESP_LOGI(TAG, "HID Volume+ %s", pressed ? "нажата" : "отпущена");
-            handle_button_press(0xE9, pressed);
+        case 0x00B5: // Next Song (короткое нажатие +)
+            ESP_LOGI(TAG, "Короткое +: Увеличение уровня");
+            short_press_plus();
             break;
             
-        case 0x00EA: // Volume Down (KEY_VOLUMEDOWN)
-            ESP_LOGI(TAG, "HID Volume- %s", pressed ? "нажата" : "отпущена");
-            handle_button_press(0xEA, pressed);
+        case 0x00B6: // Previous Song (короткое нажатие -)
+            ESP_LOGI(TAG, "Короткое -: Уменьшение уровня");
+            short_press_minus();
             break;
             
-        case 0x00CD: // Play/Pause (KEY_PLAYPAUSE)
-            if (pressed) {
-                ESP_LOGI(TAG, "HID Play/Pause: СТОП");
-                motor_stop();
-            }
+        case 0x00E9: // Volume Up (длинное нажатие +)
+            ESP_LOGI(TAG, "Длинное +: Максимум вперед");
+            long_press_plus();
             break;
             
-        case 0x00B5: // Next Song (KEY_NEXTSONG)
-            if (pressed) {
-                ESP_LOGI(TAG, "HID Next Song (игнорируется)");
-            }
+        case 0x00EA: // Volume Down (длинное нажатие -)
+            ESP_LOGI(TAG, "Длинное -: Максимум назад");
+            long_press_minus();
             break;
             
-        case 0x00B6: // Previous Song (KEY_PREVIOUSSONG)
-            if (pressed) {
-                ESP_LOGI(TAG, "HID Previous Song (игнорируется)");
-            }
+        case 0x00CD: // Play/Pause (средняя кнопка)
+            ESP_LOGI(TAG, "Средняя кнопка: СТОП");
+            motor_stop();
             break;
             
         default:
-            if (pressed) {
-                ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
-            }
+            ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
             break;
     }
 }
