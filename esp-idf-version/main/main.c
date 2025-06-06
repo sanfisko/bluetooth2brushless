@@ -266,6 +266,46 @@ static void led_blink(int times, int delay_ms)
     }
 }
 
+static void handle_hid_event(uint16_t usage, bool pressed)
+{
+    switch (usage) {
+        case 0x00E9: // Volume Up (KEY_VOLUMEUP)
+            ESP_LOGI(TAG, "HID Volume+ %s", pressed ? "нажата" : "отпущена");
+            handle_button_press(0xE9, pressed);
+            break;
+            
+        case 0x00EA: // Volume Down (KEY_VOLUMEDOWN)
+            ESP_LOGI(TAG, "HID Volume- %s", pressed ? "нажата" : "отпущена");
+            handle_button_press(0xEA, pressed);
+            break;
+            
+        case 0x00CD: // Play/Pause (KEY_PLAYPAUSE)
+            if (pressed) {
+                ESP_LOGI(TAG, "HID Play/Pause: СТОП");
+                motor_stop();
+            }
+            break;
+            
+        case 0x00B5: // Next Song (KEY_NEXTSONG)
+            if (pressed) {
+                ESP_LOGI(TAG, "HID Next Song (игнорируется)");
+            }
+            break;
+            
+        case 0x00B6: // Previous Song (KEY_PREVIOUSSONG)
+            if (pressed) {
+                ESP_LOGI(TAG, "HID Previous Song (игнорируется)");
+            }
+            break;
+            
+        default:
+            if (pressed) {
+                ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
+            }
+            break;
+    }
+}
+
 static void handle_button_press(uint8_t key, bool pressed)
 {
     if (pressed) {
@@ -394,7 +434,13 @@ static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, v
             uint8_t key_code = data->input.data[1];
             bool key_pressed = (data->input.data[0] != 0);
 
-            handle_button_press(key_code, key_pressed);
+            // Обработка HID Consumer Control событий
+            if (data->input.length >= 3) {
+                uint16_t usage = (data->input.data[2] << 8) | data->input.data[1];
+                handle_hid_event(usage, key_pressed);
+            } else {
+                handle_button_press(key_code, key_pressed);
+            }
             
             // Мигание LED при получении команды
             if (key_pressed) {

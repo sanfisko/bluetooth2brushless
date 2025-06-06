@@ -234,6 +234,32 @@ void processHIDData(String data) {
   }
 }
 
+// Обработка реальных HID событий от BT13
+void processHIDEvent(uint16_t usage, bool pressed) {
+  switch (usage) {
+    case 0x00E9: // Volume Up (KEY_VOLUMEUP)
+      handleButtonPress(0xE9, pressed);
+      break;
+      
+    case 0x00EA: // Volume Down (KEY_VOLUMEDOWN)  
+      handleButtonPress(0xEA, pressed);
+      break;
+      
+    case 0x00CD: // Play/Pause (KEY_PLAYPAUSE)
+      if (pressed) {
+        Serial.println("Команда: СТОП");
+        stopMotor();
+      }
+      break;
+      
+    default:
+      if (pressed) {
+        Serial.printf("Неизвестная HID команда: 0x%04X\n", usage);
+      }
+      break;
+  }
+}
+
 void handleButtonPress(uint8_t key, bool pressed) {
   if (pressed) {
     // Кнопка нажата
