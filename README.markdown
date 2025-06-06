@@ -32,7 +32,7 @@
 ## Настройка программного обеспечения
 1. Установите Arduino IDE.
 2. Установите пакет плат ESP32 в Arduino IDE:
-   - Перейдите в `Файл > Настройки`, добавьте `https://raw.githubusercontent.com/espressif/arduino-esp32/master/package_esp32_index.json` в поле "Дополнительные URL менеджеров плат".
+   - Перейдите в `Файл > Настройки`, добавьте `https://espressif.github.io/arduino-esp32/package_esp32_index.json` в поле "Дополнительные URL менеджеров плат".
    - Перейдите в `Инструменты > Платы > Менеджер плат`, найдите "ESP32" и установите пакет ESP32 от Espressif.
 3. Загрузите приведенный ниже код в Arduino IDE.
 4. Выберите вашу плату ESP32 (например, `ESP32 Dev Module`) в `Инструменты > Плата`.

@@ -94,7 +94,7 @@ Component config → Bluetooth →
 
 ```
 Файл → Настройки → Дополнительные ссылки для Менеджера плат:
-https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+https://espressif.github.io/arduino-esp32/package_esp32_index.json
 
 Инструменты → Плата → Менеджер плат → ESP32 → Установить
 
