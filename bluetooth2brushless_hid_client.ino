@@ -26,14 +26,20 @@ const int pwmChannel = 0;       // Канал PWM
 const int resolution = 8;       // Разрешение 8 бит (0-255)
 
 // Переменные управления двигателем
-int speed = 0;                  // Скорость двигателя (0-255)
-bool forward = true;            // Направление двигателя (true = вперед, false = назад)
+int speedLevel = 0;             // Уровень скорости от -10 до +10 (0 = стоп)
 bool motorEnabled = false;      // Состояние двигателя (включен/выключен)
+bool longPressActive = false;   // Флаг длинного нажатия
 
 // Настройки управления
-const int speedStep = 25;       // Шаг изменения скорости
-const int maxSpeed = 255;       // Максимальная скорость
-const int minSpeed = 0;         // Минимальная скорость
+const int maxSpeedLevel = 10;   // Максимальный уровень скорости
+const int speedLevels = 21;     // Всего уровней: -10..0..+10
+const int pwmPerLevel = 25;     // PWM на уровень (255/10 ≈ 25)
+
+// Таймеры для определения длинного нажатия
+unsigned long pressStartTime = 0;
+const unsigned long longPressThreshold = 500; // 500мс для длинного нажатия
+uint8_t currentPressedButton = 0; // Текущая нажатая кнопка
+bool buttonPressed = false; // Флаг нажатия кнопки
 
 // MAC адрес пульта BT13
 uint8_t bt13_address[6] = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
@@ -43,11 +49,14 @@ bool scanning = false;
 BluetoothSerial SerialBT;
 
 // Функции управления двигателем
-void increaseSpeed();
-void decreaseSpeed();
-void toggleDirection();
-void stopMotor();
-void updateMotorState();
+void shortPressPlus();          // Короткое нажатие +
+void shortPressMinus();         // Короткое нажатие -
+void longPressPlus();           // Длинное нажатие +
+void longPressMinus();          // Длинное нажатие -
+void stopMotor();               // Остановка мотора
+void updateMotorState();        // Обновление состояния мотора
+void handleButtonPress(uint8_t key, bool pressed); // Обработка нажатий
+void checkLongPress();          // Проверка длинного нажатия
 void blinkLED(int times, int delayMs);
 
 // Bluetooth функции
@@ -115,6 +124,9 @@ void loop() {
     delay(5000);
   }
 
+  // Обработка длинных нажатий
+  checkLongPress();
+
   // Индикация состояния через LED
   updateLEDStatus();
   
@@ -125,7 +137,7 @@ void loop() {
     processHIDData(data);
   }
   
-  delay(100);
+  delay(50); // Уменьшили задержку для более точной обработки длинных нажатий
 }
 
 void startScanForBT13() {
@@ -200,72 +212,138 @@ void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
 }
 
 void processHIDData(String data) {
-  // Простая обработка команд (для тестирования)
+  // Обработка HID команд с поддержкой коротких/длинных нажатий
   data.trim();
   
   if (data == "VOL_UP" || data == "+") {
-    Serial.println("Команда: Увеличить скорость");
-    increaseSpeed();
+    handleButtonPress(0xE9, true); // Volume Up нажата
   } else if (data == "VOL_DOWN" || data == "-") {
-    Serial.println("Команда: Уменьшить скорость");
-    decreaseSpeed();
+    handleButtonPress(0xEA, true); // Volume Down нажата
   } else if (data == "PLAY_PAUSE" || data == "P") {
-    Serial.println("Команда: Изменить направление");
-    toggleDirection();
+    Serial.println("Команда: СТОП");
+    stopMotor();
+  } else if (data.startsWith("RELEASE_")) {
+    // Обработка отпускания кнопок
+    if (data == "RELEASE_VOL_UP") {
+      handleButtonPress(0xE9, false);
+    } else if (data == "RELEASE_VOL_DOWN") {
+      handleButtonPress(0xEA, false);
+    }
   } else {
     Serial.println("Неизвестная команда: " + data);
   }
 }
 
-void increaseSpeed() {
-  if (!motorEnabled) {
+void handleButtonPress(uint8_t key, bool pressed) {
+  if (pressed) {
+    // Кнопка нажата
+    buttonPressed = true;
+    currentPressedButton = key;
+    pressStartTime = millis();
+    
+    if (key == 0xE9) { // Volume Up
+      Serial.println("Volume+ нажата");
+    } else if (key == 0xEA) { // Volume Down
+      Serial.println("Volume- нажата");
+    }
+  } else {
+    // Кнопка отпущена
+    if (buttonPressed && currentPressedButton == key) {
+      unsigned long pressDuration = millis() - pressStartTime;
+      buttonPressed = false;
+      currentPressedButton = 0;
+      
+      if (longPressActive) {
+        // Завершение длинного нажатия - остановка
+        longPressActive = false;
+        stopMotor();
+        Serial.println("Длинное нажатие завершено - остановка");
+      } else if (pressDuration < longPressThreshold) {
+        // Короткое нажатие
+        if (key == 0xE9) { // Volume Up
+          shortPressPlus();
+        } else if (key == 0xEA) { // Volume Down
+          shortPressMinus();
+        }
+      }
+    }
+  }
+}
+
+void checkLongPress() {
+  // Проверка длинного нажатия
+  if (buttonPressed && !longPressActive && 
+      (millis() - pressStartTime) >= longPressThreshold) {
+    
+    longPressActive = true;
+    
+    if (currentPressedButton == 0xE9) { // Volume Up
+      longPressPlus();
+    } else if (currentPressedButton == 0xEA) { // Volume Down
+      longPressMinus();
+    }
+  }
+}
+
+void shortPressPlus() {
+  if (speedLevel < maxSpeedLevel) {
+    speedLevel++;
     motorEnabled = true;
-    Serial.println("Двигатель включен");
+    updateMotorState();
+    Serial.print("Короткое +: Уровень скорости = ");
+    Serial.println(speedLevel);
   }
-  
-  speed = min(speed + speedStep, maxSpeed);
-  updateMotorState();
-  
-  Serial.print("Скорость увеличена до: ");
-  Serial.print(speed);
-  Serial.print("/");
-  Serial.println(maxSpeed);
 }
 
-void decreaseSpeed() {
-  speed = max(speed - speedStep, minSpeed);
-  
-  if (speed == 0) {
-    motorEnabled = false;
-    Serial.println("Двигатель остановлен (скорость = 0)");
+void shortPressMinus() {
+  if (speedLevel > -maxSpeedLevel) {
+    speedLevel--;
+    if (speedLevel == 0) {
+      motorEnabled = false;
+    } else {
+      motorEnabled = true;
+    }
+    updateMotorState();
+    Serial.print("Короткое -: Уровень скорости = ");
+    Serial.println(speedLevel);
   }
-  
-  updateMotorState();
-  
-  Serial.print("Скорость уменьшена до: ");
-  Serial.print(speed);
-  Serial.print("/");
-  Serial.println(maxSpeed);
 }
 
-void toggleDirection() {
-  forward = !forward;
+void longPressPlus() {
+  speedLevel = maxSpeedLevel;
+  motorEnabled = true;
+  longPressActive = true;
   updateMotorState();
-  
-  Serial.print("Направление изменено на: ");
-  Serial.println(forward ? "ВПЕРЕД" : "НАЗАД");
+  Serial.println("Длинное +: Максимальная скорость вперед");
+}
+
+void longPressMinus() {
+  speedLevel = -maxSpeedLevel;
+  motorEnabled = true;
+  longPressActive = true;
+  updateMotorState();
+  Serial.println("Длинное -: Максимальная скорость назад");
 }
 
 void stopMotor() {
-  speed = 0;
+  speedLevel = 0;
   motorEnabled = false;
+  longPressActive = false;
   updateMotorState();
   Serial.println("Двигатель остановлен");
 }
 
 void updateMotorState() {
+  // Вычисление PWM и направления на основе уровня скорости
+  int actualSpeed = 0;
+  bool forward = true;
+  
+  if (motorEnabled && speedLevel != 0) {
+    actualSpeed = abs(speedLevel) * pwmPerLevel;
+    forward = (speedLevel > 0);
+  }
+  
   // Обновление PWM для скорости
-  int actualSpeed = motorEnabled ? speed : 0;
   ledcWrite(pwmChannel, actualSpeed);
   
   // Обновление направления
@@ -274,8 +352,13 @@ void updateMotorState() {
   // Отправка статуса
   String status = "Статус: ";
   status += motorEnabled ? "ВКЛ" : "ВЫКЛ";
-  status += " | Скорость: " + String(speed) + "/" + String(maxSpeed);
+  status += " | Уровень: " + String(speedLevel) + "/" + String(maxSpeedLevel);
+  status += " | PWM: " + String(actualSpeed) + "/255";
   status += " | Направление: " + String(forward ? "ВПЕРЕД" : "НАЗАД");
+  
+  if (longPressActive) {
+    status += " | ДЛИННОЕ НАЖАТИЕ";
+  }
   
   Serial.println(status);
 }
