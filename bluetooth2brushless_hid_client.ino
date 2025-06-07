@@ -28,6 +28,8 @@ const int resolution = 8;       // Разрешение 8 бит (0-255)
 // Переменные управления двигателем
 int speedLevel = 0;             // Уровень скорости от -10 до +10 (0 = стоп)
 bool motorEnabled = false;      // Состояние двигателя (включен/выключен)
+int currentSpeed = 0;           // Текущая скорость PWM (0-255)
+bool currentDirection = true;   // Текущее направление (true = вперед)
 
 // Настройки управления
 const int maxSpeedLevel = 10;   // Максимальный уровень скорости
@@ -66,15 +68,17 @@ void setup() {
   Serial.println("=== ESP32 HID Client Motor Control ===");
   Serial.println("Инициализация системы...");
 
-  // Настройка PWM для управления скоростью
-  ledcSetup(pwmChannel, freq, resolution);
-  ledcAttachPin(speedPin, pwmChannel);
-  ledcWrite(pwmChannel, speed);
+  // Настройка PWM для управления скоростью (новый API ESP32 Core 3.x)
+  if (!ledcAttach(speedPin, freq, resolution)) {
+    Serial.println("Ошибка инициализации PWM!");
+    return;
+  }
+  ledcWrite(speedPin, currentSpeed);
   Serial.println("PWM инициализирован на пине " + String(speedPin));
 
   // Настройка пина направления
   pinMode(directionPin, OUTPUT);
-  digitalWrite(directionPin, forward ? HIGH : LOW);
+  digitalWrite(directionPin, currentDirection ? HIGH : LOW);
   Serial.println("Пин направления инициализирован на пине " + String(directionPin));
 
   // Настройка индикаторного LED
@@ -325,30 +329,26 @@ void stopMotor() {
 
 void updateMotorState() {
   // Вычисление PWM и направления на основе уровня скорости
-  int actualSpeed = 0;
-  bool forward = true;
-  
   if (motorEnabled && speedLevel != 0) {
-    actualSpeed = abs(speedLevel) * pwmPerLevel;
-    forward = (speedLevel > 0);
+    currentSpeed = abs(speedLevel) * pwmPerLevel;
+    currentDirection = (speedLevel > 0);
+  } else {
+    currentSpeed = 0;
+    currentDirection = true;
   }
   
-  // Обновление PWM для скорости
-  ledcWrite(pwmChannel, actualSpeed);
+  // Обновление PWM для скорости (новый API)
+  ledcWrite(speedPin, currentSpeed);
   
   // Обновление направления
-  digitalWrite(directionPin, forward ? HIGH : LOW);
+  digitalWrite(directionPin, currentDirection ? HIGH : LOW);
   
   // Отправка статуса
   String status = "Статус: ";
   status += motorEnabled ? "ВКЛ" : "ВЫКЛ";
   status += " | Уровень: " + String(speedLevel) + "/" + String(maxSpeedLevel);
-  status += " | PWM: " + String(actualSpeed) + "/255";
-  status += " | Направление: " + String(forward ? "ВПЕРЕД" : "НАЗАД");
-  
-  if (longPressActive) {
-    status += " | ДЛИННОЕ НАЖАТИЕ";
-  }
+  status += " | PWM: " + String(currentSpeed) + "/255";
+  status += " | Направление: " + String(currentDirection ? "ВПЕРЕД" : "НАЗАД");
   
   Serial.println(status);
 }
@@ -366,7 +366,7 @@ void updateLEDStatus() {
   static unsigned long lastBlink = 0;
   static bool ledState = false;
   
-  if (bt13_connected && motorEnabled && speed > 0) {
+  if (bt13_connected && motorEnabled && currentSpeed > 0) {
     // Быстрое мигание при работе двигателя
     if (millis() - lastBlink > 200) {
       ledState = !ledState;
