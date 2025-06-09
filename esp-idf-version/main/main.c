@@ -60,13 +60,19 @@ static bool button_pressed = false;
 
 // HID Host переменные
 static bool bt13_connected = false;
+static bool restart_scan_needed = false;
+static bool scanning_in_progress = false;
+
+// Переменные для автоматической остановки мотора
+static uint32_t disconnection_start_time = 0;
+static const uint32_t MOTOR_STOP_TIMEOUT_MS = 10000; // 10 секунд
 
 // Функции управления двигателем
 static void motor_init(void);
 static void motor_update_state(void);
 
 // Функции обработки кнопок
-static void handle_button_press(uint8_t key_code, bool pressed);
+// static void handle_button_press(uint8_t key_code, bool pressed); // Unused - commented out
 static void check_long_press(void);
 static void motor_stop(void);
 static void led_blink(int times, int delay_ms);
@@ -75,6 +81,7 @@ static void led_blink(int times, int delay_ms);
 static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
 static void hid_host_cb(void *handler_args, const char *event_name, int32_t event_id, void *param);
 static void start_scan_for_bt13(void);
+static void connection_monitor_task(void *pvParameters);
 
 void app_main(void)
 {
@@ -94,6 +101,9 @@ void app_main(void)
     // Инициализация двигателя
     motor_init();
     ESP_LOGI(TAG, "Двигатель инициализирован");
+    
+    // Инициализация таймера отключения (система стартует без соединения)
+    disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
     // Инициализация Bluetooth
     // Не освобождаем память BLE, так как используем BTDM режим
@@ -145,6 +155,9 @@ void app_main(void)
 
     // Начать поиск BT13
     start_scan_for_bt13();
+
+    // Создать задачу мониторинга соединения
+    xTaskCreate(connection_monitor_task, "connection_monitor", 2048, NULL, 5, NULL);
 
     // Основной цикл
     while (1) {
@@ -290,6 +303,8 @@ static void led_blink(int times, int delay_ms)
     }
 }
 
+// Unused legacy function - commented out to avoid warnings
+/*
 static void handle_hid_event(uint16_t usage, bool pressed)
 {
     if (!pressed) return; // Обрабатываем только нажатия
@@ -325,7 +340,10 @@ static void handle_hid_event(uint16_t usage, bool pressed)
             break;
     }
 }
+*/
 
+// Unused legacy function - commented out to avoid warnings
+/*
 static void handle_button_press(uint8_t key, bool pressed)
 {
     if (pressed) {
@@ -365,6 +383,7 @@ static void handle_button_press(uint8_t key, bool pressed)
         }
     }
 }
+*/
 
 static void check_long_press(void)
 {
@@ -384,7 +403,26 @@ static void check_long_press(void)
 
 static void start_scan_for_bt13(void)
 {
-    esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+    if (scanning_in_progress) {
+        ESP_LOGI(TAG, "Поиск уже выполняется, пропускаем...");
+        return;
+    }
+    
+    if (bt13_connected) {
+        ESP_LOGI(TAG, "BT13 уже подключен, поиск не нужен");
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Поиск пульта BT13 (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...",
+             bt13_addr[0], bt13_addr[1], bt13_addr[2], 
+             bt13_addr[3], bt13_addr[4], bt13_addr[5]);
+    
+    scanning_in_progress = true;
+    esp_err_t ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Ошибка запуска поиска: %s", esp_err_to_name(ret));
+        scanning_in_progress = false;
+    }
 }
 
 static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
@@ -409,8 +447,10 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
     case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
         if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
             ESP_LOGI(TAG, "Поиск устройств завершен");
+            scanning_in_progress = false;
         } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
             ESP_LOGI(TAG, "Поиск устройств начат");
+            scanning_in_progress = true;
         }
         break;
     default:
@@ -428,16 +468,19 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
     case 0: // OPEN_EVENT
         ESP_LOGI(TAG, "BT13 подключен успешно!");
         bt13_connected = true;
+        disconnection_start_time = 0; // Сбросить таймер отключения
         ESP_LOGI(TAG, "Готов к приему команд от пульта");
         led_blink(3, 200);
         break;
 
     case 1: // CLOSE_EVENT  
+    case 4: // CLOSE_EVENT/DISCONNECT_EVENT (альтернативный ID)
         bt13_connected = false;
-        ESP_LOGI(TAG, "BT13 отключен. Перезапуск поиска...");
+        disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS; // Запомнить время отключения
+        ESP_LOGI(TAG, "BT13 отключен. Запланирован перезапуск поиска...");
         motor_stop(); // Остановить двигатель при отключении
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        start_scan_for_bt13();
+        led_blink(5, 100); // Индикация отключения
+        restart_scan_needed = true; // Установить флаг для перезапуска
         break;
 
     case 2: // INPUT_EVENT
@@ -450,5 +493,62 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
     default:
         ESP_LOGI(TAG, "HID Host событие: %ld", event_id);
         break;
+    }
+}
+
+// Задача мониторинга соединения
+static void connection_monitor_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "Задача мониторинга соединения запущена");
+    
+    while (1) {
+        // Проверяем флаг перезапуска каждые 500мс
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        
+        // Проверка автоматической остановки мотора при длительном отключении
+        if (!bt13_connected && disconnection_start_time > 0) {
+            uint32_t disconnection_duration = current_time - disconnection_start_time;
+            
+            if (disconnection_duration >= MOTOR_STOP_TIMEOUT_MS) {
+                if (motor_enabled || speed_level != 0) {
+                    ESP_LOGW(TAG, "⚠️  Мотор остановлен автоматически: нет соединения %lu секунд", 
+                             disconnection_duration / 1000);
+                    motor_stop();
+                    led_blink(10, 100); // Длинная индикация автоматической остановки
+                }
+                // Сбросить таймер, чтобы не повторять остановку
+                disconnection_start_time = 0;
+            }
+        }
+        
+        if (restart_scan_needed) {
+            ESP_LOGI(TAG, "🔄 Обнаружен флаг перезапуска поиска!");
+            restart_scan_needed = false;
+            
+            ESP_LOGI(TAG, "⏳ Перезапуск поиска BT13 через 3 секунды...");
+            vTaskDelay(pdMS_TO_TICKS(3000)); // Ждем 3 секунды перед перезапуском
+            
+            if (!bt13_connected) { // Проверяем, что все еще не подключен
+                ESP_LOGI(TAG, "🔍 Запуск поиска BT13...");
+                start_scan_for_bt13();
+            } else {
+                ESP_LOGI(TAG, "✅ BT13 уже подключен, отмена перезапуска");
+            }
+        }
+        
+        // Дополнительная проверка: если долго нет соединения, перезапускаем поиск
+        static uint32_t last_connection_check = 0;
+        
+        if (!bt13_connected && (current_time - last_connection_check > 30000)) { // 30 секунд
+            ESP_LOGI(TAG, "Долгое отсутствие соединения, перезапуск поиска...");
+            start_scan_for_bt13();
+            last_connection_check = current_time;
+        }
+        
+        if (bt13_connected) {
+            last_connection_check = current_time;
+        }
     }
 }
