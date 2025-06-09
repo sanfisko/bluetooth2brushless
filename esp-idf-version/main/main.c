@@ -70,6 +70,7 @@ static const uint32_t MOTOR_STOP_TIMEOUT_MS = 10000; // 10 секунд
 // Функции управления двигателем
 static void motor_init(void);
 static void motor_update_state(void);
+static void print_motor_status(void);
 
 // Функции обработки кнопок
 // static void handle_button_press(uint8_t key_code, bool pressed); // Unused - commented out
@@ -240,6 +241,17 @@ static void motor_update_state(void)
              actual_speed,
              forward ? "ВПЕРЕД" : "НАЗАД",
              long_press_active ? " | ДЛИННОЕ НАЖАТИЕ" : "");
+}
+
+static void print_motor_status(void)
+{
+    if (!motor_enabled || speed_level == 0) {
+        ESP_LOGI(TAG, "Остановлен");
+    } else {
+        int percentage = (abs(speed_level) * 100) / max_speed_level;
+        const char* direction = (speed_level > 0) ? "вперед" : "назад";
+        ESP_LOGI(TAG, "Работает %s на %d%%", direction, percentage);
+    }
 }
 
 static void short_press_plus(void)
@@ -484,8 +496,6 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
         break;
 
     case 2: // INPUT_EVENT
-        ESP_LOGI(TAG, "Получены данные от BT13");
-        
         // Парсинг HID данных
         esp_hidh_event_data_t *event_data = (esp_hidh_event_data_t *)param;
         if (event_data && event_data->input.data && event_data->input.length > 0) {
@@ -537,6 +547,8 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                             ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
                             break;
                     }
+                    // Показать текущее состояние мотора после выполнения команды
+                    print_motor_status();
                 } else {
                     ESP_LOGI(TAG, "Кнопка отпущена");
                 }
