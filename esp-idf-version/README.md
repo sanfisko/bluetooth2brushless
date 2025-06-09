@@ -2,12 +2,21 @@
 
 ## 🚀 Автоматическая установка
 
+### Из любого места (рекомендуется)
+```bash
+wget https://raw.githubusercontent.com/sanfisko/bluetooth2brushless/main/install-esp-idf-version.sh
+chmod +x install-esp-idf-version.sh
+./install-esp-idf-version.sh
+```
+
+### Из папки проекта
 ```bash
 cd esp-idf-version
 ./install.sh
 ```
 
 Скрипт автоматически:
+- ✅ Клонирует репозиторий (если нужно)
 - ✅ Проверит ESP-IDF окружение
 - ✅ Соберет проект
 - ✅ Найдет ESP32

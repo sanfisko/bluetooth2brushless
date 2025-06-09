@@ -23,16 +23,30 @@
 
 ## ESP-IDF (продвинутые)
 
-### 1. Установить ESP-IDF v5.4+
+### Автоматическая установка (рекомендуется)
 ```bash
+wget https://raw.githubusercontent.com/sanfisko/bluetooth2brushless/main/install-esp-idf-version.sh
+chmod +x install-esp-idf-version.sh
+./install-esp-idf-version.sh
+```
+
+Скрипт автоматически:
+- Клонирует репозиторий
+- Проверит ESP-IDF (или покажет как установить)
+- Соберет проект
+- Найдет ESP32 и прошьет
+- Запустит мониторинг
+
+### Ручная установка
+```bash
+# 1. Установить ESP-IDF v5.4+
 mkdir -p ~/esp && cd ~/esp
 git clone --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf && ./install.sh esp32 && . ./export.sh
-```
 
-### 2. Собрать и прошить
-```bash
-cd esp-idf-version
+# 2. Клонировать и собрать
+git clone https://github.com/sanfisko/bluetooth2brushless.git
+cd bluetooth2brushless/esp-idf-version
 idf.py build flash monitor
 ```
 

@@ -11,8 +11,10 @@ ESP32 + пульт BT13 = управление мотором
 
 ### ESP-IDF (продвинутые)
 ```bash
-cd esp-idf-version
-./install.sh  # Автоматическая установка
+# Скачать и запустить автоустановку
+wget https://raw.githubusercontent.com/sanfisko/bluetooth2brushless/main/install-esp-idf-version.sh
+chmod +x install-esp-idf-version.sh
+./install-esp-idf-version.sh
 ```
 
 ## 🔌 Подключение
