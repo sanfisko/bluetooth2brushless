@@ -110,7 +110,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(bt_gap_cb));
 
     // Инициализация HID Host
-    ESP_ERROR_CHECK(esp_hid_gap_init(ESP_HID_MODE_CLASSIC_BT));
+    ESP_ERROR_CHECK(esp_hid_gap_init(HID_HOST_MODE));
     ESP_ERROR_CHECK(esp_event_handler_register(ESP_HIDH_EVENTS, ESP_EVENT_ANY_ID, 
                                                hid_host_cb, NULL));
 
@@ -367,7 +367,6 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch (event) {
     case ESP_BT_GAP_DISC_RES_EVT: {
-        esp_bt_gap_dev_prop_t *p;
         ESP_LOGI(TAG, "Найдено устройство: %02x:%02x:%02x:%02x:%02x:%02x",
                  param->disc_res.bda[0], param->disc_res.bda[1], param->disc_res.bda[2],
                  param->disc_res.bda[3], param->disc_res.bda[4], param->disc_res.bda[5]);
