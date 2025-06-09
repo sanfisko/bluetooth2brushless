@@ -221,9 +221,21 @@ pip3 install pyserial
 // Удалить эту строку из main.c:
 // #include "esp_hidd_prf_api.h"
 
-// Оставить только:
-#include "esp_hid_gap.h"
-#include "esp_hid_host.h"
+// Заменить на правильный заголовочный файл для ESP-IDF v5.4+:
+#include "esp_hidh_api.h"
+```
+
+#### Ошибка "esp_hid_gap.h: No such file or directory"
+
+В ESP-IDF v5.4+ API HID изменился. Используйте:
+
+```c
+// Вместо:
+// #include "esp_hid_gap.h"
+// #include "esp_hid_host.h"
+
+// Используйте:
+#include "esp_hidh_api.h"
 ```
 
 #### Предупреждение "unknown kconfig symbol 'LEDC_USE_XTAL_CLK'"
@@ -252,11 +264,23 @@ idf.py build
 #### Общие ошибки компиляции
 
 ```bash
-# Очистить сборку
+# Очистить сборку и конфигурацию
 idf.py fullclean
+rm sdkconfig
 
-# Пересобрать
+# Пересоздать конфигурацию и собрать
+idf.py set-target esp32
 idf.py build
+```
+
+#### Если HID заголовочные файлы не найдены
+
+Убедитесь, что в `sdkconfig.defaults` есть:
+
+```bash
+CONFIG_BT_HID_HOST_ENABLED=y
+CONFIG_BT_HID_ENABLED=y
+CONFIG_ESP_HID_HOST_ENABLED=y
 ```
 
 ### Проблемы с Bluetooth

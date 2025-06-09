@@ -14,6 +14,10 @@ CONFIG_BT_BLE_ENABLED=n
 
 # Настройки для HID Host
 CONFIG_BT_HID_HOST_ENABLED=y
+CONFIG_BT_HID_ENABLED=y
+
+# ESP HID компонент (для esp_hid_gap.h и esp_hid_host.h)
+CONFIG_ESP_HID_HOST_ENABLED=y
 
 # Настройки памяти
 CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
