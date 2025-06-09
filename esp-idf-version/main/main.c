@@ -68,7 +68,7 @@ static void motor_init(void);
 static void motor_update_state(void);
 
 // Функции обработки кнопок
-static void handle_button_press(uint8_t key_code, bool pressed);
+// static void handle_button_press(uint8_t key_code, bool pressed); // Unused - commented out
 static void check_long_press(void);
 static void motor_stop(void);
 static void led_blink(int times, int delay_ms);
@@ -296,6 +296,8 @@ static void led_blink(int times, int delay_ms)
     }
 }
 
+// Unused legacy function - commented out to avoid warnings
+/*
 static void handle_hid_event(uint16_t usage, bool pressed)
 {
     if (!pressed) return; // Обрабатываем только нажатия
@@ -331,7 +333,10 @@ static void handle_hid_event(uint16_t usage, bool pressed)
             break;
     }
 }
+*/
 
+// Unused legacy function - commented out to avoid warnings
+/*
 static void handle_button_press(uint8_t key, bool pressed)
 {
     if (pressed) {
@@ -371,6 +376,7 @@ static void handle_button_press(uint8_t key, bool pressed)
         }
     }
 }
+*/
 
 static void check_long_press(void)
 {
@@ -460,7 +466,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
         break;
 
     case 1: // CLOSE_EVENT  
-    case 4: // CLOSE_EVENT (альтернативный ID)
+    case 4: // CLOSE_EVENT/DISCONNECT_EVENT (альтернативный ID)
         bt13_connected = false;
         ESP_LOGI(TAG, "BT13 отключен. Запланирован перезапуск поиска...");
         motor_stop(); // Остановить двигатель при отключении
@@ -473,14 +479,6 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
         // В новом API структура данных может отличаться
         // Пока просто логируем событие и мигаем LED
         led_blink(1, 50);
-        break;
-
-    case 4: // DISCONNECT_EVENT (дополнительное событие отключения)
-        bt13_connected = false;
-        ESP_LOGI(TAG, "BT13 отключен (событие 4). Запланирован перезапуск поиска...");
-        motor_stop(); // Остановить двигатель при отключении
-        led_blink(5, 100); // Индикация отключения
-        restart_scan_needed = true; // Установить флаг для перезапуска
         break;
 
     default:
