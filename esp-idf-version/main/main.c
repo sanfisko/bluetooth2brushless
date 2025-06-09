@@ -507,9 +507,9 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
             printf("\n");
             
             // Обработка HID Consumer Control команд
-            // BT13 отправляет Consumer Control Usage в формате: [Report ID] [Usage Low] [Usage High]
-            if (event_data->input.length >= 3) {
-                uint16_t usage = (event_data->input.data[2] << 8) | event_data->input.data[1];
+            // BT13 отправляет данные в формате: [Usage Low] [Usage High]
+            if (event_data->input.length >= 2) {
+                uint16_t usage = (event_data->input.data[1] << 8) | event_data->input.data[0];
                 
                 // Проверяем, что это нажатие (не отпускание)
                 bool pressed = (usage != 0);
@@ -517,7 +517,34 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                 if (pressed) {
                     ESP_LOGI(TAG, "HID Usage: 0x%04X", usage);
                     
+                    // Анализируем полученные коды на основе логов
                     switch (usage) {
+                        case 0x0004: // Короткое нажатие + (увеличение уровня)
+                            ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
+                            short_press_plus();
+                            break;
+                            
+                        case 0x0008: // Короткое нажатие + (увеличение уровня) - альтернативный код
+                            ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
+                            short_press_plus();
+                            break;
+                            
+                        case 0x0010: // Средняя кнопка (СТОП)
+                            ESP_LOGI(TAG, "Команда: СТОП");
+                            motor_stop();
+                            break;
+                            
+                        case 0x0001: // Короткое нажатие - (уменьшение уровня)
+                            ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
+                            short_press_minus();
+                            break;
+                            
+                        case 0x0002: // Длинное нажатие - (максимум назад)
+                            ESP_LOGI(TAG, "Команда: Длинное - (максимум назад)");
+                            long_press_minus();
+                            break;
+                            
+                        // Добавляем старые коды на случай, если они тоже используются
                         case 0x00B5: // Next Song (короткое нажатие +)
                             ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
                             short_press_plus();
