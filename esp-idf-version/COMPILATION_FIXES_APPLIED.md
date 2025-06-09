@@ -31,8 +31,46 @@ case 4: // CLOSE_EVENT/DISCONNECT_EVENT (альтернативный ID)
 
 **Solution:** Commented out these unused legacy functions to eliminate warnings while preserving the code for potential future use.
 
+## New Features Added
+
+### 3. Automatic Motor Stop on Connection Loss
+**Feature:** Added automatic motor stop functionality when Bluetooth connection is lost for more than 10 seconds.
+
+**Implementation:**
+- Added `disconnection_start_time` variable to track when connection was lost
+- Added `MOTOR_STOP_TIMEOUT_MS` constant (10 seconds)
+- Modified `hid_host_cb` to track connection/disconnection events
+- Enhanced `connection_monitor_task` to automatically stop motor after timeout
+
+**Safety Benefits:**
+- Prevents motor from running indefinitely if remote control is lost
+- Provides visual indication (LED blinks 10 times) when automatic stop occurs
+- Logs warning message with disconnection duration
+
+**Code Changes:**
+```c
+// New variables
+static uint32_t disconnection_start_time = 0;
+static const uint32_t MOTOR_STOP_TIMEOUT_MS = 10000; // 10 seconds
+
+// Enhanced connection monitoring
+if (!bt13_connected && disconnection_start_time > 0) {
+    uint32_t disconnection_duration = current_time - disconnection_start_time;
+    
+    if (disconnection_duration >= MOTOR_STOP_TIMEOUT_MS) {
+        if (motor_enabled || speed_level != 0) {
+            ESP_LOGW(TAG, "⚠️  Мотор остановлен автоматически: нет соединения %lu секунд", 
+                     disconnection_duration / 1000);
+            motor_stop();
+            led_blink(10, 100); // Длинная индикация автоматической остановки
+        }
+        disconnection_start_time = 0;
+    }
+}
+```
+
 ## Files Modified
-- `main/main.c` - Fixed duplicate case values and commented out unused functions
+- `main/main.c` - Fixed duplicate case values, commented out unused functions, added automatic motor stop
 
 ## Build Instructions
 After applying these fixes, the project should compile successfully with ESP-IDF v5.4.1:

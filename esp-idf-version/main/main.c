@@ -63,6 +63,10 @@ static bool bt13_connected = false;
 static bool restart_scan_needed = false;
 static bool scanning_in_progress = false;
 
+// Переменные для автоматической остановки мотора
+static uint32_t disconnection_start_time = 0;
+static const uint32_t MOTOR_STOP_TIMEOUT_MS = 10000; // 10 секунд
+
 // Функции управления двигателем
 static void motor_init(void);
 static void motor_update_state(void);
@@ -97,6 +101,9 @@ void app_main(void)
     // Инициализация двигателя
     motor_init();
     ESP_LOGI(TAG, "Двигатель инициализирован");
+    
+    // Инициализация таймера отключения (система стартует без соединения)
+    disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
     // Инициализация Bluetooth
     // Не освобождаем память BLE, так как используем BTDM режим
@@ -461,6 +468,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
     case 0: // OPEN_EVENT
         ESP_LOGI(TAG, "BT13 подключен успешно!");
         bt13_connected = true;
+        disconnection_start_time = 0; // Сбросить таймер отключения
         ESP_LOGI(TAG, "Готов к приему команд от пульта");
         led_blink(3, 200);
         break;
@@ -468,6 +476,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
     case 1: // CLOSE_EVENT  
     case 4: // CLOSE_EVENT/DISCONNECT_EVENT (альтернативный ID)
         bt13_connected = false;
+        disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS; // Запомнить время отключения
         ESP_LOGI(TAG, "BT13 отключен. Запланирован перезапуск поиска...");
         motor_stop(); // Остановить двигатель при отключении
         led_blink(5, 100); // Индикация отключения
@@ -496,6 +505,24 @@ static void connection_monitor_task(void *pvParameters)
         // Проверяем флаг перезапуска каждые 500мс
         vTaskDelay(pdMS_TO_TICKS(500));
         
+        uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        
+        // Проверка автоматической остановки мотора при длительном отключении
+        if (!bt13_connected && disconnection_start_time > 0) {
+            uint32_t disconnection_duration = current_time - disconnection_start_time;
+            
+            if (disconnection_duration >= MOTOR_STOP_TIMEOUT_MS) {
+                if (motor_enabled || speed_level != 0) {
+                    ESP_LOGW(TAG, "⚠️  Мотор остановлен автоматически: нет соединения %lu секунд", 
+                             disconnection_duration / 1000);
+                    motor_stop();
+                    led_blink(10, 100); // Длинная индикация автоматической остановки
+                }
+                // Сбросить таймер, чтобы не повторять остановку
+                disconnection_start_time = 0;
+            }
+        }
+        
         if (restart_scan_needed) {
             ESP_LOGI(TAG, "🔄 Обнаружен флаг перезапуска поиска!");
             restart_scan_needed = false;
@@ -513,7 +540,6 @@ static void connection_monitor_task(void *pvParameters)
         
         // Дополнительная проверка: если долго нет соединения, перезапускаем поиск
         static uint32_t last_connection_check = 0;
-        uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
         
         if (!bt13_connected && (current_time - last_connection_check > 30000)) { // 30 секунд
             ESP_LOGI(TAG, "Долгое отсутствие соединения, перезапуск поиска...");
