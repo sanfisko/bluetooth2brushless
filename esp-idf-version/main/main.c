@@ -21,8 +21,8 @@
 #include "esp_bt_main.h"
 #include "esp_gap_bt_api.h"
 #include "esp_bt_device.h"
+#include "esp_hidh.h"
 #include "esp_hid_gap.h"
-#include "esp_hid_host.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 

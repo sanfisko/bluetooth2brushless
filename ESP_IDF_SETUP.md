@@ -1,15 +1,40 @@
-# Установка и настройка ESP-IDF для проекта BT13
+# Установка и настройка ESP-IDF v5.4.1 для проекта BT13
+
+## Требования
+
+- **ESP-IDF версия**: v5.4.1 (обязательно)
+- **Целевая платформа**: ESP32
+- **Операционная система**: Ubuntu/Debian, macOS
+- **Python**: 3.8 или выше
+
+## Шаг 0: Получение проекта
+
+Сначала клонируйте проект bluetooth2brushless:
+
+```bash
+# Клонирование проекта
+git clone https://github.com/sanfisko/bluetooth2brushless.git
+
+# Переход в папку проекта
+cd bluetooth2brushless
+
+# Проверка содержимого
+ls -la
+
+# Должны увидеть папку esp-idf-version
+ls esp-idf-version/
+```
 
 ## Быстрый старт (если ESP-IDF уже установлен)
 
-Если у вас уже установлен ESP-IDF в `~/esp/esp-idf`, выполните:
+Если у вас уже установлен ESP-IDF v5.4.1 в `~/esp/esp-idf`, выполните:
 
 ```bash
 # Активация окружения ESP-IDF
 . ~/esp/esp-idf/export.sh
 
 # Переход в папку проекта
-cd ~/bluetooth2brushless/esp-idf-version
+cd bluetooth2brushless/esp-idf-version
 
 # Проверка версии
 idf.py --version
@@ -21,9 +46,13 @@ idf.py set-target esp32
 idf.py build
 ```
 
-## Полная установка ESP-IDF на Ubuntu/macOS
+## Полная установка ESP-IDF v5.4.1
 
-> **Примечание**: Инструкции обновлены для ESP-IDF v5.4.1 и корректного пути установки в `~/esp/esp-idf`
+### Требования
+
+- Python 3.8 или новее
+- Git
+- CMake 3.16 или новее
 
 ### 1. Установка зависимостей
 
@@ -44,24 +73,17 @@ brew install cmake ninja dfu-util
 ### 2. Клонирование ESP-IDF
 
 ```bash
-# Проверка существующей установки
-if [ -d "$HOME/esp/esp-idf" ]; then
-    echo "ESP-IDF уже установлен в ~/esp/esp-idf"
-    cd ~/esp/esp-idf
-    git pull
-else
-    # Создание папки esp в домашней директории
-    mkdir -p ~/esp
-    cd ~/esp
-    
-    # Клонирование ESP-IDF
-    git clone --recursive https://github.com/espressif/esp-idf.git
-    
-    # Переход в папку ESP-IDF
-    cd esp-idf
-fi
+# Создание папки esp в домашней директории
+mkdir -p ~/esp
+cd ~/esp
 
-# Переключение на стабильную версию (рекомендуется использовать последнюю стабильную)
+# Клонирование ESP-IDF
+git clone --recursive https://github.com/espressif/esp-idf.git
+
+# Переход в папку ESP-IDF
+cd esp-idf
+
+# Переключение на версию v5.4.1
 git checkout v5.4.1
 git submodule update --init --recursive
 ```
@@ -71,30 +93,24 @@ git submodule update --init --recursive
 ```bash
 # Установка инструментов для ESP32
 ./install.sh esp32
-
-# Настройка окружения (добавьте в ~/.bashrc или ~/.zshrc)
-echo 'alias get_idf=". $HOME/esp/esp-idf/export.sh"' >> ~/.bashrc
-
-# Применить изменения
-source ~/.bashrc
-
-# Или для текущей сессии
-. ./export.sh
 ```
 
-### 4. Проверка установки
+### 4. Активация окружения
+
+**Важно:** Команду активации нужно выполнять в каждой новой сессии терминала:
 
 ```bash
-# Активировать окружение ESP-IDF
-get_idf
+# Активация окружения ESP-IDF
+. ~/esp/esp-idf/export.sh
+```
 
-# Или если алиас не работает, используйте прямую команду:
-# . ~/esp/esp-idf/export.sh
+### 5. Проверка установки
 
+```bash
 # Проверить версию
 idf.py --version
 
-# Должно показать что-то вроде:
+# Должно показать:
 # ESP-IDF v5.4.1
 ```
 
@@ -104,12 +120,13 @@ idf.py --version
 
 ```bash
 # Переход в папку проекта
+# Если клонировали в домашнюю папку:
 cd ~/bluetooth2brushless/esp-idf-version
+# Если клонировали в текущую папку:
+# cd bluetooth2brushless/esp-idf-version
 
 # Активация окружения ESP-IDF
-get_idf
-# Или если алиас не работает:
-# . ~/esp/esp-idf/export.sh
+. ~/esp/esp-idf/export.sh
 
 # Настройка целевой платформы
 idf.py set-target esp32
@@ -118,7 +135,6 @@ idf.py set-target esp32
 ### 2. Конфигурация проекта
 
 ```bash
-# Открыть меню конфигурации
 idf.py menuconfig
 ```
 
@@ -152,61 +168,40 @@ Partition Table →
 # Сборка проекта
 idf.py build
 
-# Подключите ESP32 к компьютеру и найдите порт
-ls /dev/tty* | grep -E "(USB|ACM)"
-
-# Прошивка (замените /dev/ttyUSB0 на ваш порт)
+# Прошивка (подключите ESP32 к компьютеру)
 idf.py -p /dev/ttyUSB0 flash
 
-# Мониторинг логов
+# Мониторинг вывода
 idf.py -p /dev/ttyUSB0 monitor
-
-# Выход из монитора: Ctrl+]
 ```
 
-## Устранение проблем
+**Примечание:** Замените `/dev/ttyUSB0` на правильный порт:
+- Linux: `/dev/ttyUSB0` или `/dev/ttyACM0`
+- macOS: `/dev/cu.usbserial-*` или `/dev/cu.SLAB_USBtoUART`
+- Windows: `COM3`, `COM4` и т.д.
 
-### Ошибка "get_idf: команда не найдена"
+## Решение проблем
 
-Если алиас `get_idf` не работает, используйте прямую команду:
+### Команда "idf.py: команда не найдена"
+
+Это означает, что окружение ESP-IDF не активировано. Выполните:
 
 ```bash
-# Активация ESP-IDF окружения
 . ~/esp/esp-idf/export.sh
-
-# Или создайте алиас заново
-echo 'alias get_idf=". $HOME/esp/esp-idf/export.sh"' >> ~/.bashrc
-source ~/.bashrc
-
-# Для zsh пользователей
-echo 'alias get_idf=". $HOME/esp/esp-idf/export.sh"' >> ~/.zshrc
-source ~/.zshrc
 ```
 
-### Ошибка прав доступа к порту
+### Проблемы с портом
 
-```bash
-# Добавить пользователя в группу dialout
-sudo usermod -a -G dialout $USER
-
-# Перелогиниться или выполнить
-newgrp dialout
-
-# Или дать права на порт
-sudo chmod 666 /dev/ttyUSB0
-```
-
-### Ошибка "No module named 'serial'"
-
-```bash
-# Установить pyserial
-pip3 install pyserial
-```
-
-### ESP32 не определяется
-
-1. **Проверьте USB кабель** - должен поддерживать передачу данных
-2. **Установите драйверы**:
+1. **Проверьте подключение ESP32**
+2. **Найдите правильный порт:**
+   ```bash
+   # Linux/macOS
+   ls /dev/tty*
+   
+   # Или используйте автоопределение
+   idf.py flash
+   ```
+3. **Проверьте драйверы USB-UART:**
    - CP2102: https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers
    - CH340: http://www.wch.cn/downloads/CH341SER_EXE.html
 3. **Нажмите кнопку BOOT** на ESP32 при прошивке
@@ -221,9 +216,21 @@ pip3 install pyserial
 // Удалить эту строку из main.c:
 // #include "esp_hidd_prf_api.h"
 
-// Оставить только:
-#include "esp_hid_gap.h"
-#include "esp_hid_host.h"
+// Заменить на правильный заголовочный файл для ESP-IDF v5.4+:
+#include "esp_hidh_api.h"
+```
+
+#### Ошибка "esp_hid_gap.h: No such file or directory"
+
+В ESP-IDF v5.4+ API HID изменился. Используйте:
+
+```c
+// Вместо:
+// #include "esp_hid_gap.h"
+// #include "esp_hid_host.h"
+
+// Используйте:
+#include "esp_hidh_api.h"
 ```
 
 #### Предупреждение "unknown kconfig symbol 'LEDC_USE_XTAL_CLK'"
@@ -234,132 +241,111 @@ pip3 install pyserial
 # CONFIG_LEDC_USE_XTAL_CLK=y
 ```
 
-#### Ошибка "Bluetooth controller mode BLE only"
+#### Ошибка "CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y" (неправильная конфигурация Bluetooth)
 
-Если в `sdkconfig` установлен `CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y`, это неправильно для HID устройств. Исправление:
+Если в `sdkconfig` установлено `CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y`, это неправильно для HID Host. Исправление:
 
-1. Удалите файл `sdkconfig` (если есть)
-2. Убедитесь, что в `sdkconfig.defaults` установлено:
 ```bash
-CONFIG_BTDM_CTRL_MODE_BTDM=y
-```
-3. Пересоберите проект:
-```bash
-idf.py fullclean
-idf.py build
+# Удалить существующий sdkconfig
+rm sdkconfig
+
+# Пересоздать конфигурацию
+idf.py set-target esp32
+
+# Или исправить в menuconfig:
+idf.py menuconfig
+# Перейти в: Component config → Bluetooth → Controller Options
+# Выбрать: Controller mode → Bluetooth Dual Mode (BTDM)
 ```
 
 #### Общие ошибки компиляции
 
 ```bash
-# Очистить сборку
+# Очистить сборку и конфигурацию
 idf.py fullclean
+rm sdkconfig
 
-# Пересобрать
+# Пересоздать конфигурацию и собрать
+idf.py set-target esp32
 idf.py build
+```
+
+#### Если HID заголовочные файлы не найдены
+
+Убедитесь, что в `sdkconfig.defaults` есть:
+
+```bash
+CONFIG_BT_HID_HOST_ENABLED=y
+CONFIG_BT_HID_ENABLED=y
+CONFIG_ESP_HID_HOST_ENABLED=y
 ```
 
 ### Проблемы с Bluetooth
 
 1. **Проверьте конфигурацию** в menuconfig
-2. **Убедитесь что BT13 не подключен** к другим устройствам
-3. **Перезагрузите ESP32** после прошивки
 
-## Полезные команды
+2. **Убедитесь, что BT13 в режиме сопряжения:**
+   - Нажмите и удерживайте кнопку питания BT13
+   - Светодиод должен мигать синим
 
-```bash
-# Очистка проекта
-idf.py clean
+3. **Проверьте логи:**
+   ```bash
+   idf.py monitor
+   ```
 
-# Полная очистка
-idf.py fullclean
+4. **Сброс настроек Bluetooth на ESP32:**
+   ```bash
+   idf.py erase-flash
+   idf.py flash
+   ```
 
-# Только прошивка без сборки
-idf.py -p /dev/ttyUSB0 flash
+## Автоматизация активации окружения
 
-# Только мониторинг
-idf.py -p /dev/ttyUSB0 monitor
-
-# Прошивка и мониторинг
-idf.py -p /dev/ttyUSB0 flash monitor
-
-# Информация о разделах
-idf.py partition-table
-
-# Размер прошивки
-idf.py size
-
-# Анализ размера компонентов
-idf.py size-components
-```
-
-## Структура проекта ESP-IDF
-
-```
-esp-idf-version/
-├── CMakeLists.txt          # Основной файл сборки
-├── sdkconfig.defaults      # Настройки по умолчанию
-├── main/
-│   ├── CMakeLists.txt      # Файл сборки main компонента
-│   └── main.c              # Основной код
-└── build/                  # Папка сборки (создается автоматически)
-```
-
-## Отладка
-
-### Уровни логирования
-
-```c
-ESP_LOGE(TAG, "Ошибка: %s", error_msg);    // Красный
-ESP_LOGW(TAG, "Предупреждение: %s", msg);  // Желтый  
-ESP_LOGI(TAG, "Информация: %s", msg);      // Зеленый
-ESP_LOGD(TAG, "Отладка: %s", msg);         // Белый
-ESP_LOGV(TAG, "Подробно: %s", msg);        // Серый
-```
-
-### Изменение уровня логирования
+Для удобства можете добавить в `~/.bashrc` или `~/.zshrc`:
 
 ```bash
-# В menuconfig
-Component config → Log output → Default log verbosity
+# ESP-IDF окружение
+alias esp_env='. ~/esp/esp-idf/export.sh'
 
-# Или в коде
-esp_log_level_set("BT13_MOTOR_CONTROL", ESP_LOG_DEBUG);
+# Быстрый переход к проекту
+alias bt13_project='cd bluetooth2brushless/esp-idf-version'
 ```
 
-### Мониторинг с фильтрацией
+Затем используйте:
+```bash
+# Активировать ESP-IDF и перейти к проекту
+esp_env
+bt13_project
+idf.py build
+```
+
+## Полный workflow для новых пользователей
 
 ```bash
-# Показать только сообщения нашего компонента
-idf.py monitor | grep "BT13_MOTOR_CONTROL"
+# 1. Клонировать проект
+git clone https://github.com/sanfisko/bluetooth2brushless.git
+cd bluetooth2brushless
 
-# Показать только ошибки
-idf.py monitor | grep -E "(ERROR|ERRO)"
+# 2. Установить ESP-IDF (если не установлен)
+mkdir -p ~/esp && cd ~/esp
+git clone --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf && git checkout v5.4.1
+git submodule update --init --recursive
+./install.sh esp32
+
+# 3. Собрать проект
+. ~/esp/esp-idf/export.sh
+cd bluetooth2brushless/esp-idf-version
+idf.py set-target esp32
+idf.py build
 ```
 
-## Переход с Arduino IDE на ESP-IDF
+## Дополнительные ресурсы
 
-### Основные отличия:
+- [Официальная документация ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/v5.4.1/)
+- [ESP32 Bluetooth Classic API](https://docs.espressif.com/projects/esp-idf/en/v5.4.1/esp32/api-reference/bluetooth/classic_bt.html)
+- [ESP32 HID Host API](https://docs.espressif.com/projects/esp-idf/en/v5.4.1/esp32/api-reference/bluetooth/esp_hidh.html)
 
-| Arduino IDE | ESP-IDF |
-|-------------|---------|
-| `setup()` | `app_main()` |
-| `loop()` | `while(1)` в `app_main()` |
-| `delay()` | `vTaskDelay(pdMS_TO_TICKS())` |
-| `Serial.println()` | `ESP_LOGI()` |
-| `pinMode()` | `gpio_config()` |
-| `digitalWrite()` | `gpio_set_level()` |
-| `analogWrite()` | `ledc_set_duty()` |
+---
 
-### Преимущества ESP-IDF:
-- Полный контроль над системой
-- Лучшая производительность
-- Профессиональные инструменты отладки
-- Поддержка всех возможностей ESP32
-- Стабильность в продакшене
-
-### Недостатки ESP-IDF:
-- Более сложная настройка
-- Больше кода для простых задач
-- Требует знания FreeRTOS
-- Дольше время разработки
+**Примечание**: Этот проект протестирован и работает с ESP-IDF v5.4.1. Использование других версий может привести к ошибкам компиляции.
