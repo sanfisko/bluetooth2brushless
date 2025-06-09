@@ -299,6 +299,47 @@ CONFIG_ESP_HID_HOST_ENABLED=y
    idf.py flash
    ```
 
+## Автоматизация активации окружения
+
+Для удобства можете добавить в `~/.bashrc` или `~/.zshrc`:
+
+```bash
+# ESP-IDF окружение
+alias esp_env='. ~/esp/esp-idf/export.sh'
+
+# Быстрый переход к проекту
+alias bt13_project='cd bluetooth2brushless/esp-idf-version'
+```
+
+Затем используйте:
+```bash
+# Активировать ESP-IDF и перейти к проекту
+esp_env
+bt13_project
+idf.py build
+```
+
+## Полный workflow для новых пользователей
+
+```bash
+# 1. Клонировать проект
+git clone https://github.com/sanfisko/bluetooth2brushless.git
+cd bluetooth2brushless
+
+# 2. Установить ESP-IDF (если не установлен)
+mkdir -p ~/esp && cd ~/esp
+git clone --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf && git checkout v5.4.1
+git submodule update --init --recursive
+./install.sh esp32
+
+# 3. Собрать проект
+. ~/esp/esp-idf/export.sh
+cd bluetooth2brushless/esp-idf-version
+idf.py set-target esp32
+idf.py build
+```
+
 ## Дополнительные ресурсы
 
 - [Официальная документация ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/v5.4.1/)
