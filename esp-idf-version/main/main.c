@@ -25,6 +25,7 @@
 #include "esp_hid_gap.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "esp_timer.h"
 
 static const char *TAG = "BT13_MOTOR_CONTROL";
 
@@ -59,16 +60,21 @@ static uint8_t current_pressed_button = 0;
 static bool button_pressed = false;
 
 // HID Host переменные
-static esp_hid_host_dev_t *hid_dev = NULL;
+static esp_hidh_dev_t *hid_dev = NULL;
 static bool bt13_connected = false;
 
 // Функции управления двигателем
 static void motor_init(void);
+static void motor_update_state(void);
 static void motor_update_speed(void);
 static void motor_update_direction(void);
 static void motor_increase_speed(void);
 static void motor_decrease_speed(void);
 static void motor_toggle_direction(void);
+
+// Функции обработки кнопок
+static void handle_button_press(uint8_t key_code, bool pressed);
+static void check_long_press(void);
 static void motor_stop(void);
 static void led_blink(int times, int delay_ms);
 
@@ -109,8 +115,8 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(bt_gap_cb));
 
     // Инициализация HID Host
-    ESP_ERROR_CHECK(esp_hid_host_init());
-    ESP_ERROR_CHECK(esp_event_handler_register(ESP_HID_HOST_EVENTS, ESP_EVENT_ANY_ID, 
+    ESP_ERROR_CHECK(esp_hid_gap_init());
+    ESP_ERROR_CHECK(esp_event_handler_register(ESP_HIDH_EVENTS, ESP_EVENT_ANY_ID, 
                                                hid_host_cb, NULL));
 
     ESP_LOGI(TAG, "Bluetooth инициализирован");
@@ -378,7 +384,7 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
             
             // Подключаемся к BT13
             ESP_LOGI(TAG, "Подключение к BT13...");
-            esp_hid_host_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, param->disc_res.bda);
+            esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, param->disc_res.bda);
         }
         break;
     }
@@ -396,10 +402,10 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 
 static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
 {
-    esp_hid_host_event_data_t *data = (esp_hid_host_event_data_t *)event_data;
+    esp_hidh_event_data_t *data = (esp_hidh_event_data_t *)event_data;
 
     switch (id) {
-    case ESP_HID_HOST_OPEN_EVENT:
+    case ESP_HIDH_OPEN_EVENT:
         if (data->open.status == ESP_OK) {
             hid_dev = data->open.dev;
             bt13_connected = true;
@@ -414,7 +420,7 @@ static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, v
         }
         break;
 
-    case ESP_HID_HOST_CLOSE_EVENT:
+    case ESP_HIDH_CLOSE_EVENT:
         hid_dev = NULL;
         bt13_connected = false;
         ESP_LOGI(TAG, "BT13 отключен. Перезапуск поиска...");
@@ -423,7 +429,7 @@ static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, v
         start_scan_for_bt13();
         break;
 
-    case ESP_HID_HOST_INPUT_EVENT: {
+    case ESP_HIDH_INPUT_EVENT: {
         // Обработка HID событий от BT13
         if (data->input.length >= 2) {
             uint8_t key_code = data->input.data[1];
