@@ -209,6 +209,29 @@ pip3 install pyserial
 
 ### Ошибки компиляции
 
+#### Ошибка "esp_hidd_prf_api.h: No such file or directory"
+
+Эта ошибка возникает в ESP-IDF v5.4+ из-за изменений в API. Исправление:
+
+```c
+// Удалить эту строку из main.c:
+// #include "esp_hidd_prf_api.h"
+
+// Оставить только:
+#include "esp_hid_gap.h"
+#include "esp_hid_host.h"
+```
+
+#### Предупреждение "unknown kconfig symbol 'LEDC_USE_XTAL_CLK'"
+
+В `sdkconfig.defaults` закомментируйте устаревшую опцию:
+
+```bash
+# CONFIG_LEDC_USE_XTAL_CLK=y
+```
+
+#### Общие ошибки компиляции
+
 ```bash
 # Очистить сборку
 idf.py fullclean
