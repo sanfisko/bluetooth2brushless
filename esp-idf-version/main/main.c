@@ -485,8 +485,64 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
 
     case 2: // INPUT_EVENT
         ESP_LOGI(TAG, "Получены данные от BT13");
-        // В новом API структура данных может отличаться
-        // Пока просто логируем событие и мигаем LED
+        
+        // Парсинг HID данных
+        esp_hidh_event_data_t *event_data = (esp_hidh_event_data_t *)param;
+        if (event_data && event_data->input.data && event_data->input.length > 0) {
+            // Логируем сырые данные для отладки
+            ESP_LOGI(TAG, "HID данные (%d байт):", event_data->input.length);
+            for (int i = 0; i < event_data->input.length; i++) {
+                printf("%02X ", event_data->input.data[i]);
+            }
+            printf("\n");
+            
+            // Обработка HID Consumer Control команд
+            // BT13 отправляет Consumer Control Usage в формате: [Report ID] [Usage Low] [Usage High]
+            if (event_data->input.length >= 3) {
+                uint16_t usage = (event_data->input.data[2] << 8) | event_data->input.data[1];
+                
+                // Проверяем, что это нажатие (не отпускание)
+                bool pressed = (usage != 0);
+                
+                if (pressed) {
+                    ESP_LOGI(TAG, "HID Usage: 0x%04X", usage);
+                    
+                    switch (usage) {
+                        case 0x00B5: // Next Song (короткое нажатие +)
+                            ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
+                            short_press_plus();
+                            break;
+                            
+                        case 0x00B6: // Previous Song (короткое нажатие -)
+                            ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
+                            short_press_minus();
+                            break;
+                            
+                        case 0x00E9: // Volume Up (длинное нажатие +)
+                            ESP_LOGI(TAG, "Команда: Длинное + (максимум вперед)");
+                            long_press_plus();
+                            break;
+                            
+                        case 0x00EA: // Volume Down (длинное нажатие -)
+                            ESP_LOGI(TAG, "Команда: Длинное - (максимум назад)");
+                            long_press_minus();
+                            break;
+                            
+                        case 0x00CD: // Play/Pause (средняя кнопка)
+                            ESP_LOGI(TAG, "Команда: СТОП");
+                            motor_stop();
+                            break;
+                            
+                        default:
+                            ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
+                            break;
+                    }
+                } else {
+                    ESP_LOGI(TAG, "Кнопка отпущена");
+                }
+            }
+        }
+        
         led_blink(1, 50);
         break;
 
