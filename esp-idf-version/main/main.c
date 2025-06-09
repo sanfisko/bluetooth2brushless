@@ -96,7 +96,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Двигатель инициализирован");
 
     // Инициализация Bluetooth
-    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+    // Не освобождаем память BLE, так как используем BTDM режим
     
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_bt_controller_init(&bt_cfg));
