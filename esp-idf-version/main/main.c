@@ -22,7 +22,6 @@
 #include "esp_gap_bt_api.h"
 #include "esp_bt_device.h"
 #include "esp_hidh.h"
-#include "esp_hid_gap.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "esp_timer.h"
@@ -75,7 +74,7 @@ static void led_blink(int times, int delay_ms);
 
 // Bluetooth функции
 static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
-static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, void *event_data);
+static void hid_host_cb(void *handler_args, esp_hidh_event_t event, esp_hidh_event_data_t *param);
 static void start_scan_for_bt13(void);
 
 void app_main(void)
@@ -110,9 +109,11 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(bt_gap_cb));
 
     // Инициализация HID Host
-    ESP_ERROR_CHECK(esp_hid_gap_init(HID_HOST_MODE));
-    ESP_ERROR_CHECK(esp_event_handler_register(ESP_HIDH_EVENTS, ESP_EVENT_ANY_ID, 
-                                               hid_host_cb, NULL));
+    ESP_ERROR_CHECK(esp_hidh_init(&(esp_hidh_config_t){
+        .callback = hid_host_cb,
+        .event_stack_size = 4096,
+        .callback_arg = NULL,
+    }));
 
     ESP_LOGI(TAG, "Bluetooth инициализирован");
     ESP_LOGI(TAG, "Поиск пульта BT13 (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...", 
@@ -394,20 +395,18 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
     }
 }
 
-static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, void *event_data)
+static void hid_host_cb(void *handler_args, esp_hidh_event_t event, esp_hidh_event_data_t *param)
 {
-    esp_hidh_event_data_t *data = (esp_hidh_event_data_t *)event_data;
-
-    switch (id) {
+    switch (event) {
     case ESP_HIDH_OPEN_EVENT:
-        if (data->open.status == ESP_OK) {
-            hid_dev = data->open.dev;
+        if (param->open.status == ESP_OK) {
+            hid_dev = param->open.dev;
             bt13_connected = true;
             ESP_LOGI(TAG, "BT13 подключен успешно!");
             ESP_LOGI(TAG, "Готов к приему команд от пульта");
             led_blink(3, 200);
         } else {
-            ESP_LOGE(TAG, "Ошибка подключения к BT13: %d", data->open.status);
+            ESP_LOGE(TAG, "Ошибка подключения к BT13: %d", param->open.status);
             // Повторить поиск через 5 секунд
             vTaskDelay(pdMS_TO_TICKS(5000));
             start_scan_for_bt13();
@@ -425,13 +424,13 @@ static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, v
 
     case ESP_HIDH_INPUT_EVENT: {
         // Обработка HID событий от BT13
-        if (data->input.length >= 2) {
-            uint8_t key_code = data->input.data[1];
-            bool key_pressed = (data->input.data[0] != 0);
+        if (param->input.length >= 2) {
+            uint8_t key_code = param->input.data[1];
+            bool key_pressed = (param->input.data[0] != 0);
 
             // Обработка HID Consumer Control событий
-            if (data->input.length >= 3) {
-                uint16_t usage = (data->input.data[2] << 8) | data->input.data[1];
+            if (param->input.length >= 3) {
+                uint16_t usage = (param->input.data[2] << 8) | param->input.data[1];
                 handle_hid_event(usage, key_pressed);
             } else {
                 handle_button_press(key_code, key_pressed);
@@ -446,7 +445,7 @@ static void hid_host_cb(void *handler_args, esp_event_base_t base, int32_t id, v
     }
 
     default:
-        ESP_LOGI(TAG, "HID Host событие: %ld", id);
+        ESP_LOGI(TAG, "HID Host событие: %d", event);
         break;
     }
 }
