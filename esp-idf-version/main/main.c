@@ -66,11 +66,6 @@ static bool bt13_connected = false;
 // Функции управления двигателем
 static void motor_init(void);
 static void motor_update_state(void);
-static void motor_update_speed(void);
-static void motor_update_direction(void);
-static void motor_increase_speed(void);
-static void motor_decrease_speed(void);
-static void motor_toggle_direction(void);
 
 // Функции обработки кнопок
 static void handle_button_press(uint8_t key_code, bool pressed);
@@ -115,7 +110,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(bt_gap_cb));
 
     // Инициализация HID Host
-    ESP_ERROR_CHECK(esp_hid_gap_init());
+    ESP_ERROR_CHECK(esp_hid_gap_init(ESP_HID_MODE_CLASSIC_BT));
     ESP_ERROR_CHECK(esp_event_handler_register(ESP_HIDH_EVENTS, ESP_EVENT_ANY_ID, 
                                                hid_host_cb, NULL));
 
@@ -384,7 +379,7 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
             
             // Подключаемся к BT13
             ESP_LOGI(TAG, "Подключение к BT13...");
-            esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, param->disc_res.bda);
+            esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, 0);
         }
         break;
     }

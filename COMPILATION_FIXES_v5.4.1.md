@@ -7,15 +7,18 @@
 ### ✅ Исправленные ошибки:
 
 1. **`esp_hid_host_dev_t` не найден** → заменен на `esp_hidh_dev_t`
-2. **`esp_hid_host_init()` не найден** → заменен на `esp_hid_gap_init()`
+2. **`esp_hid_host_init()` не найден** → заменен на `esp_hid_gap_init(ESP_HID_MODE_CLASSIC_BT)`
 3. **`ESP_HID_HOST_EVENTS` не найден** → заменен на `ESP_HIDH_EVENTS`
 4. **`esp_hid_host_event_data_t` не найден** → заменен на `esp_hidh_event_data_t`
 5. **`ESP_HID_HOST_OPEN_EVENT` не найден** → заменен на `ESP_HIDH_OPEN_EVENT`
 6. **`ESP_HID_HOST_CLOSE_EVENT` не найден** → заменен на `ESP_HIDH_CLOSE_EVENT`
 7. **`ESP_HID_HOST_INPUT_EVENT` не найден** → заменен на `ESP_HIDH_INPUT_EVENT`
-8. **`esp_hid_host_dev_open()` не найден** → заменен на `esp_hidh_dev_open()`
+8. **`esp_hid_host_dev_open()` не найден** → заменен на `esp_hidh_dev_open()` с правильными параметрами
 9. **`esp_timer_get_time()` не найден** → добавлен `#include "esp_timer.h"`
 10. **Проблемы с порядком объявления функций** → добавлены forward declarations
+11. **`esp_hid_gap_init()` требует параметр** → добавлен параметр `ESP_HID_MODE_CLASSIC_BT`
+12. **Неправильные параметры `esp_hidh_dev_open()`** → исправлен третий параметр на `0`
+13. **Неиспользуемые объявления функций** → удалены неиспользуемые forward declarations
 
 ## Что теперь делать
 
