@@ -131,6 +131,10 @@ Component config → Bluetooth →
   [*] HID Host
   [ ] BLE (отключить для экономии памяти)
 
+Component config → Bluetooth → Controller Options →
+  Controller mode → Bluetooth Dual Mode (BTDM)
+  (НЕ выбирайте "BLE only"!)
+
 Component config → Bluetooth → Bluedroid Options →
   [*] Classic Bluetooth
   [*] HID Host
@@ -228,6 +232,23 @@ pip3 install pyserial
 
 ```bash
 # CONFIG_LEDC_USE_XTAL_CLK=y
+```
+
+#### Ошибка "CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y" (неправильная конфигурация Bluetooth)
+
+Если в `sdkconfig` установлено `CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y`, это неправильно для HID Host. Исправление:
+
+```bash
+# Удалить существующий sdkconfig
+rm sdkconfig
+
+# Пересоздать конфигурацию
+idf.py set-target esp32
+
+# Или исправить в menuconfig:
+idf.py menuconfig
+# Перейти в: Component config → Bluetooth → Controller Options
+# Выбрать: Controller mode → Bluetooth Dual Mode (BTDM)
 ```
 
 #### Общие ошибки компиляции
