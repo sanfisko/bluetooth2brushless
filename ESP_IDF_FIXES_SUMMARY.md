@@ -84,15 +84,17 @@
 - **Причина**: Код использовал старые функции и типы HID Host API
 - **Решение**: 
   - `esp_hid_host_dev_t` → `esp_hidh_dev_t`
-  - `esp_hid_host_init()` → `esp_hid_gap_init()`
+  - `esp_hid_host_init()` → `esp_hid_gap_init(ESP_HID_MODE_CLASSIC_BT)`
   - `ESP_HID_HOST_EVENTS` → `ESP_HIDH_EVENTS`
   - `esp_hid_host_event_data_t` → `esp_hidh_event_data_t`
   - `ESP_HID_HOST_OPEN_EVENT` → `ESP_HIDH_OPEN_EVENT`
   - `ESP_HID_HOST_CLOSE_EVENT` → `ESP_HIDH_CLOSE_EVENT`
   - `ESP_HID_HOST_INPUT_EVENT` → `ESP_HIDH_INPUT_EVENT`
-  - `esp_hid_host_dev_open()` → `esp_hidh_dev_open()`
+  - `esp_hid_host_dev_open()` → `esp_hidh_dev_open()` с правильными параметрами
   - Добавлен `#include "esp_timer.h"` для `esp_timer_get_time()`
   - Добавлены объявления функций для правильного порядка компиляции
+  - Исправлены параметры функций для ESP-IDF v5.4.1
+  - Удалены неиспользуемые объявления функций
 
 ## Результат:
 Документация и код полностью модернизированы для ESP-IDF v5.4.1:
