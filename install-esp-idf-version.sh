@@ -230,7 +230,7 @@ flash_esp32() {
 
 # Определение порта ESP32
 detect_port() {
-    print_step "Поиск ESP32..."
+    print_step "Поиск ESP32..." >&2
     
     # Список возможных портов
     POSSIBLE_PORTS=(
@@ -244,24 +244,24 @@ detect_port() {
     
     for port in "${POSSIBLE_PORTS[@]}"; do
         if ls $port 2>/dev/null; then
-            print_success "Найден порт: $port"
+            print_success "Найден порт: $port" >&2
             echo "$port"
             return 0
         fi
     done
     
-    print_warning "Автоматическое определение порта не удалось"
-    print_info "Доступные порты:"
-    ls /dev/tty* 2>/dev/null | grep -E "(USB|ACM|usbserial)" || echo "  Порты не найдены"
+    print_warning "Автоматическое определение порта не удалось" >&2
+    print_info "Доступные порты:" >&2
+    ls /dev/tty* 2>/dev/null | grep -E "(USB|ACM|usbserial)" >&2 || echo "  Порты не найдены" >&2
     
     # Запрос порта у пользователя
-    echo ""
-    read -p "Введите порт ESP32 (например, /dev/ttyUSB0): " user_port
+    echo "" >&2
+    read -p "Введите порт ESP32 (например, /dev/ttyUSB0): " user_port >&2
     if [ -e "$user_port" ]; then
         echo "$user_port"
         return 0
     else
-        print_error "Порт $user_port не существует"
+        print_error "Порт $user_port не существует" >&2
         return 1
     fi
 }

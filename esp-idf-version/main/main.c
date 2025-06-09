@@ -524,9 +524,9 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                             short_press_plus();
                             break;
                             
-                        case 0x0008: // Короткое нажатие + (увеличение уровня) - альтернативный код
-                            ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
-                            short_press_plus();
+                        case 0x0008: // Короткое нажатие - (уменьшение уровня)
+                            ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
+                            short_press_minus();
                             break;
                             
                         case 0x0010: // Средняя кнопка (СТОП)
