@@ -1,6 +1,29 @@
 # Установка и настройка ESP-IDF для проекта BT13
 
-## Установка ESP-IDF на Ubuntu/macOS
+## Быстрый старт (если ESP-IDF уже установлен)
+
+Если у вас уже установлен ESP-IDF в `~/esp/esp-idf`, выполните:
+
+```bash
+# Активация окружения ESP-IDF
+. ~/esp/esp-idf/export.sh
+
+# Переход в папку проекта
+cd ~/bluetooth2brushless/esp-idf-version
+
+# Проверка версии
+idf.py --version
+
+# Настройка целевой платформы
+idf.py set-target esp32
+
+# Сборка проекта
+idf.py build
+```
+
+## Полная установка ESP-IDF на Ubuntu/macOS
+
+> **Примечание**: Инструкции обновлены для ESP-IDF v5.4.1 и корректного пути установки в `~/esp/esp-idf`
 
 ### 1. Установка зависимостей
 
@@ -21,17 +44,25 @@ brew install cmake ninja dfu-util
 ### 2. Клонирование ESP-IDF
 
 ```bash
-# Переход в домашнюю папку
-cd ~/
+# Проверка существующей установки
+if [ -d "$HOME/esp/esp-idf" ]; then
+    echo "ESP-IDF уже установлен в ~/esp/esp-idf"
+    cd ~/esp/esp-idf
+    git pull
+else
+    # Создание папки esp в домашней директории
+    mkdir -p ~/esp
+    cd ~/esp
+    
+    # Клонирование ESP-IDF
+    git clone --recursive https://github.com/espressif/esp-idf.git
+    
+    # Переход в папку ESP-IDF
+    cd esp-idf
+fi
 
-# Клонирование ESP-IDF
-git clone --recursive https://github.com/espressif/esp-idf.git
-
-# Переход в папку ESP-IDF
-cd esp-idf
-
-# Переключение на стабильную версию
-git checkout v5.1.2
+# Переключение на стабильную версию (рекомендуется использовать последнюю стабильную)
+git checkout v5.4.1
 git submodule update --init --recursive
 ```
 
@@ -42,7 +73,7 @@ git submodule update --init --recursive
 ./install.sh esp32
 
 # Настройка окружения (добавьте в ~/.bashrc или ~/.zshrc)
-echo 'alias get_idf=". $HOME/esp-idf/export.sh"' >> ~/.bashrc
+echo 'alias get_idf=". $HOME/esp/esp-idf/export.sh"' >> ~/.bashrc
 
 # Применить изменения
 source ~/.bashrc
@@ -57,11 +88,14 @@ source ~/.bashrc
 # Активировать окружение ESP-IDF
 get_idf
 
+# Или если алиас не работает, используйте прямую команду:
+# . ~/esp/esp-idf/export.sh
+
 # Проверить версию
 idf.py --version
 
 # Должно показать что-то вроде:
-# ESP-IDF v5.1.2
+# ESP-IDF v5.4.1
 ```
 
 ## Сборка проекта BT13
@@ -70,10 +104,12 @@ idf.py --version
 
 ```bash
 # Переход в папку проекта
-cd /path/to/bluetooth2brushless/esp-idf-version
+cd ~/bluetooth2brushless/esp-idf-version
 
 # Активация окружения ESP-IDF
 get_idf
+# Или если алиас не работает:
+# . ~/esp/esp-idf/export.sh
 
 # Настройка целевой платформы
 idf.py set-target esp32
@@ -125,6 +161,23 @@ idf.py -p /dev/ttyUSB0 monitor
 ```
 
 ## Устранение проблем
+
+### Ошибка "get_idf: команда не найдена"
+
+Если алиас `get_idf` не работает, используйте прямую команду:
+
+```bash
+# Активация ESP-IDF окружения
+. ~/esp/esp-idf/export.sh
+
+# Или создайте алиас заново
+echo 'alias get_idf=". $HOME/esp/esp-idf/export.sh"' >> ~/.bashrc
+source ~/.bashrc
+
+# Для zsh пользователей
+echo 'alias get_idf=". $HOME/esp/esp-idf/export.sh"' >> ~/.zshrc
+source ~/.zshrc
+```
 
 ### Ошибка прав доступа к порту
 
