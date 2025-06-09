@@ -99,10 +99,34 @@ void app_main(void)
     // Не освобождаем память BLE, так как используем BTDM режим
     
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_bt_controller_init(&bt_cfg));
-    ESP_ERROR_CHECK(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT));
-    ESP_ERROR_CHECK(esp_bluedroid_init());
-    ESP_ERROR_CHECK(esp_bluedroid_enable());
+    
+    ESP_LOGI(TAG, "Инициализация BT контроллера...");
+    ret = esp_bt_controller_init(&bt_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Ошибка инициализации BT контроллера: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Включение BT контроллера...");
+    ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Ошибка включения BT контроллера: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Инициализация Bluedroid...");
+    ret = esp_bluedroid_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Ошибка инициализации Bluedroid: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Включение Bluedroid...");
+    ret = esp_bluedroid_enable();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Ошибка включения Bluedroid: %s", esp_err_to_name(ret));
+        return;
+    }
 
     // Регистрация GAP callback
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(bt_gap_cb));
