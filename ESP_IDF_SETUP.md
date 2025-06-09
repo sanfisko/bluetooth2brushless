@@ -7,6 +7,24 @@
 - **Операционная система**: Ubuntu/Debian, macOS
 - **Python**: 3.8 или выше
 
+## Шаг 0: Получение проекта
+
+Сначала клонируйте проект bluetooth2brushless:
+
+```bash
+# Клонирование проекта
+git clone https://github.com/sanfisko/bluetooth2brushless.git
+
+# Переход в папку проекта
+cd bluetooth2brushless
+
+# Проверка содержимого
+ls -la
+
+# Должны увидеть папку esp-idf-version
+ls esp-idf-version/
+```
+
 ## Быстрый старт (если ESP-IDF уже установлен)
 
 Если у вас уже установлен ESP-IDF v5.4.1 в `~/esp/esp-idf`, выполните:
@@ -16,7 +34,7 @@
 . ~/esp/esp-idf/export.sh
 
 # Переход в папку проекта
-cd ~/bluetooth2brushless/esp-idf-version
+cd bluetooth2brushless/esp-idf-version
 
 # Проверка версии
 idf.py --version
@@ -102,7 +120,10 @@ idf.py --version
 
 ```bash
 # Переход в папку проекта
+# Если клонировали в домашнюю папку:
 cd ~/bluetooth2brushless/esp-idf-version
+# Если клонировали в текущую папку:
+# cd bluetooth2brushless/esp-idf-version
 
 # Активация окружения ESP-IDF
 . ~/esp/esp-idf/export.sh
