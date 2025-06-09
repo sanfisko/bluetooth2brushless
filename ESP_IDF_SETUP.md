@@ -221,21 +221,25 @@ pip3 install pyserial
 // Удалить эту строку из main.c:
 // #include "esp_hidd_prf_api.h"
 
-// Заменить на правильный заголовочный файл для ESP-IDF v5.4+:
-#include "esp_hidh_api.h"
+// Заменить на правильные заголовочные файлы для ESP-IDF v5.4+:
+#include "esp_hidh.h"
+#include "esp_hid_gap.h"
 ```
 
 #### Ошибка "esp_hid_gap.h: No such file or directory"
 
-В ESP-IDF v5.4+ API HID изменился. Используйте:
+В ESP-IDF v5.4+ файлы `esp_hid_gap.h` и `esp_hid_gap.c` находятся в примерах, а не в компонентах. Исправление:
 
-```c
-// Вместо:
-// #include "esp_hid_gap.h"
-// #include "esp_hid_host.h"
+1. Скопировать файлы из примера:
+```bash
+cp $IDF_PATH/examples/bluetooth/esp_hid_host/main/esp_hid_gap.h main/
+cp $IDF_PATH/examples/bluetooth/esp_hid_host/main/esp_hid_gap.c main/
+```
 
-// Используйте:
-#include "esp_hidh_api.h"
+2. Добавить в `sdkconfig.defaults`:
+```bash
+CONFIG_BT_HID_HOST_ENABLED=y
+CONFIG_BT_HID_ENABLED=y
 ```
 
 #### Предупреждение "unknown kconfig symbol 'LEDC_USE_XTAL_CLK'"
