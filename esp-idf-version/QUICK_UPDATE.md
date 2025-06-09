@@ -23,11 +23,16 @@ idf.py build                    # собрать проект
 idf.py -p /dev/ttyUSB0 flash monitor  # прошить и запустить мониторинг
 ```
 
-### 2. Если ESP-IDF не настроен:
+### 2. Если ESP-IDF не настроен или нужна полная автоустановка:
 
 ```bash
+# Скачать и запустить автоустановщик из корня проекта
+cd bluetooth2brushless
+./install-esp-idf-version.sh  # полная автоматическая установка
+
+# Или локальный скрипт из папки esp-idf-version
 cd bluetooth2brushless/esp-idf-version
-./install.sh  # автоматическая установка и прошивка
+./install.sh  # локальная установка и прошивка
 ```
 
 ## Результат
