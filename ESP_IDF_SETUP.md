@@ -234,21 +234,19 @@ pip3 install pyserial
 # CONFIG_LEDC_USE_XTAL_CLK=y
 ```
 
-#### Ошибка "CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y" (неправильная конфигурация Bluetooth)
+#### Ошибка "Bluetooth controller mode BLE only"
 
-Если в `sdkconfig` установлено `CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y`, это неправильно для HID Host. Исправление:
+Если в `sdkconfig` установлен `CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y`, это неправильно для HID устройств. Исправление:
 
+1. Удалите файл `sdkconfig` (если есть)
+2. Убедитесь, что в `sdkconfig.defaults` установлено:
 ```bash
-# Удалить существующий sdkconfig
-rm sdkconfig
-
-# Пересоздать конфигурацию
-idf.py set-target esp32
-
-# Или исправить в menuconfig:
-idf.py menuconfig
-# Перейти в: Component config → Bluetooth → Controller Options
-# Выбрать: Controller mode → Bluetooth Dual Mode (BTDM)
+CONFIG_BTDM_CTRL_MODE_BTDM=y
+```
+3. Пересоберите проект:
+```bash
+idf.py fullclean
+idf.py build
 ```
 
 #### Общие ошибки компиляции
