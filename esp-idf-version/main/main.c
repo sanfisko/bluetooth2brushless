@@ -52,11 +52,13 @@ static bool long_press_active = false; // Флаг длинного нажати
 static const int max_speed_level = 10;   // Максимальный уровень скорости
 static const int pwm_per_level = 25;     // PWM на уровень (255/10 ≈ 25)
 
-// Таймеры для определения длинного нажатия
+// Переменные для отслеживания длинных нажатий
 static uint64_t press_start_time = 0;
 static const uint64_t long_press_threshold = 500000; // 500мс в микросекундах
-static uint8_t current_pressed_button = 0;
+static uint16_t current_pressed_button = 0;
 static bool button_pressed = false;
+static bool long_press_active = false;
+static int saved_speed_level = 0; // Сохраненный уровень скорости для возврата после длинного нажатия
 
 // HID Host переменные
 static bool bt13_connected = false;
@@ -73,7 +75,11 @@ static void motor_update_state(void);
 static void print_motor_status(void);
 
 // Функции обработки кнопок
-// static void handle_button_press(uint8_t key_code, bool pressed); // Unused - commented out
+static void short_press_plus(void);
+static void short_press_minus(void);
+static void long_press_plus(void);
+static void long_press_minus(void);
+static void handle_button_release(void);
 static void check_long_press(void);
 static void motor_stop(void);
 static void led_blink(int times, int delay_ms);
@@ -280,20 +286,40 @@ static void short_press_minus(void)
 
 static void long_press_plus(void)
 {
+    if (!long_press_active) {
+        saved_speed_level = speed_level; // Сохраняем текущий уровень
+        long_press_active = true;
+    }
     speed_level = max_speed_level;
     motor_enabled = true;
-    long_press_active = true;
     motor_update_state();
-    ESP_LOGI(TAG, "Длинное +: Максимальная скорость вперед");
+    ESP_LOGI(TAG, "Длинное +: Максимальная скорость вперед (100%)");
 }
 
 static void long_press_minus(void)
 {
+    if (!long_press_active) {
+        saved_speed_level = speed_level; // Сохраняем текущий уровень
+        long_press_active = true;
+    }
     speed_level = -max_speed_level;
     motor_enabled = true;
-    long_press_active = true;
     motor_update_state();
-    ESP_LOGI(TAG, "Длинное -: Максимальная скорость назад");
+    ESP_LOGI(TAG, "Длинное -: Максимальная скорость назад (100%)");
+}
+
+static void handle_button_release(void)
+{
+    if (long_press_active) {
+        // При отпускании длинного нажатия - полная остановка
+        long_press_active = false;
+        speed_level = 0;
+        motor_enabled = false;
+        motor_update_state();
+        ESP_LOGI(TAG, "Отпускание длинного нажатия: Полная остановка");
+    }
+    button_pressed = false;
+    current_pressed_button = 0;
 }
 
 static void motor_stop(void)
@@ -517,67 +543,91 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                 if (pressed) {
                     ESP_LOGI(TAG, "HID Usage: 0x%04X", usage);
                     
-                    // Анализируем полученные коды на основе логов
-                    switch (usage) {
-                        case 0x0004: // Короткое нажатие + (увеличение уровня)
-                            ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
-                            short_press_plus();
-                            break;
-                            
-                        case 0x0008: // Короткое нажатие - (уменьшение уровня)
-                            ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
-                            short_press_minus();
-                            break;
-                            
-                        case 0x0010: // Средняя кнопка (СТОП)
-                            ESP_LOGI(TAG, "Команда: СТОП");
-                            motor_stop();
-                            break;
-                            
-                        case 0x0001: // Короткое нажатие - (уменьшение уровня)
-                            ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
-                            short_press_minus();
-                            break;
-                            
-                        case 0x0002: // Длинное нажатие - (максимум назад)
-                            ESP_LOGI(TAG, "Команда: Длинное - (максимум назад)");
-                            long_press_minus();
-                            break;
-                            
-                        // Добавляем старые коды на случай, если они тоже используются
-                        case 0x00B5: // Next Song (короткое нажатие +)
-                            ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
-                            short_press_plus();
-                            break;
-                            
-                        case 0x00B6: // Previous Song (короткое нажатие -)
-                            ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
-                            short_press_minus();
-                            break;
-                            
-                        case 0x00E9: // Volume Up (длинное нажатие +)
-                            ESP_LOGI(TAG, "Команда: Длинное + (максимум вперед)");
-                            long_press_plus();
-                            break;
-                            
-                        case 0x00EA: // Volume Down (длинное нажатие -)
-                            ESP_LOGI(TAG, "Команда: Длинное - (максимум назад)");
-                            long_press_minus();
-                            break;
-                            
-                        case 0x00CD: // Play/Pause (средняя кнопка)
-                            ESP_LOGI(TAG, "Команда: СТОП");
-                            motor_stop();
-                            break;
-                            
-                        default:
-                            ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
-                            break;
+                    // Обработка нажатия кнопки
+                    if (!button_pressed) {
+                        // Новое нажатие
+                        button_pressed = true;
+                        current_pressed_button = usage;
+                        press_start_time = esp_timer_get_time();
+                        
+                        // Определяем тип кнопки
+                        switch (usage) {
+                            case 0x0004: // Кнопка +
+                            case 0x00B5:
+                                ESP_LOGI(TAG, "Нажата кнопка + (ожидание определения длины нажатия)");
+                                break;
+                                
+                            case 0x0008: // Кнопка -
+                            case 0x0001:
+                            case 0x00B6:
+                                ESP_LOGI(TAG, "Нажата кнопка - (ожидание определения длины нажатия)");
+                                break;
+                                
+                            case 0x0010: // Средняя кнопка (всегда СТОП)
+                            case 0x00CD:
+                                ESP_LOGI(TAG, "Команда: СТОП");
+                                motor_stop();
+                                print_motor_status();
+                                break;
+                                
+                            default:
+                                ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
+                                break;
+                        }
+                    } else if (current_pressed_button == usage) {
+                        // Продолжение удержания той же кнопки
+                        uint64_t press_duration = esp_timer_get_time() - press_start_time;
+                        
+                        if (press_duration >= long_press_threshold && !long_press_active) {
+                            // Переход в режим длинного нажатия
+                            switch (usage) {
+                                case 0x0004: // Длинное +
+                                case 0x00B5:
+                                    ESP_LOGI(TAG, "Команда: Длинное + (максимум вперед)");
+                                    long_press_plus();
+                                    break;
+                                    
+                                case 0x0008: // Длинное -
+                                case 0x0001:
+                                case 0x00B6:
+                                    ESP_LOGI(TAG, "Команда: Длинное - (максимум назад)");
+                                    long_press_minus();
+                                    break;
+                            }
+                            print_motor_status();
+                        }
                     }
-                    // Показать текущее состояние мотора после выполнения команды
-                    print_motor_status();
                 } else {
-                    ESP_LOGI(TAG, "Кнопка отпущена");
+                    // Кнопка отпущена
+                    if (button_pressed) {
+                        uint64_t press_duration = esp_timer_get_time() - press_start_time;
+                        
+                        if (press_duration < long_press_threshold && !long_press_active) {
+                            // Короткое нажатие
+                            switch (current_pressed_button) {
+                                case 0x0004: // Короткое +
+                                case 0x00B5:
+                                    ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
+                                    short_press_plus();
+                                    break;
+                                    
+                                case 0x0008: // Короткое -
+                                case 0x0001:
+                                case 0x00B6:
+                                    ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
+                                    short_press_minus();
+                                    break;
+                            }
+                            print_motor_status();
+                        }
+                        
+                        // Обработка отпускания кнопки
+                        handle_button_release();
+                        ESP_LOGI(TAG, "Кнопка отпущена");
+                        if (long_press_active) {
+                            print_motor_status();
+                        }
+                    }
                 }
             }
         }

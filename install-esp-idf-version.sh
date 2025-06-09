@@ -243,7 +243,7 @@ detect_port() {
     )
     
     for port in "${POSSIBLE_PORTS[@]}"; do
-        if ls $port 2>/dev/null; then
+        if ls $port 2>/dev/null >&2; then
             print_success "Найден порт: $port" >&2
             echo "$port"
             return 0
