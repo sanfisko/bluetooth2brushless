@@ -189,9 +189,6 @@ static bool check_bluetooth_state(void)
         case ESP_BT_CONTROLLER_STATUS_ENABLED:
             Serial.println("BT Controller: ENABLED");
             break;
-        case ESP_BT_CONTROLLER_STATUS_NUM_STATUS:
-            Serial.println("BT Controller: UNKNOWN STATUS");
-            break;
         default:
             Serial.println("BT Controller: INVALID STATUS");
             return false;
