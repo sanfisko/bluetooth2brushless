@@ -70,6 +70,14 @@ static const uint32_t MOTOR_STOP_TIMEOUT_MS = 10000; // 10 секунд
 // Bluetooth состояние
 static bool bluetooth_initialized = false;
 static bool bluetooth_enabled = false;
+static bool gap_callback_registered = false;
+static bool hidh_initialized = false;
+
+// Переменные для ограничения попыток перезапуска
+static uint32_t last_restart_attempt = 0;
+static int restart_attempts = 0;
+static const int MAX_RESTART_ATTEMPTS = 3;
+static const uint32_t RESTART_COOLDOWN_MS = 30000; // 30 секунд между попытками
 
 // Функции управления двигателем
 static void motor_init(void);
@@ -132,12 +140,34 @@ void setup() {
 }
 
 void loop() {
-    // Проверка состояния Bluetooth
+    // Проверка состояния Bluetooth с ограничением попыток
     if (!bluetooth_enabled) {
-        Serial.println("WARNING: Bluetooth not enabled, attempting restart...");
+        uint32_t current_time = millis();
+        
+        // Проверяем, не превышено ли количество попыток
+        if (restart_attempts >= MAX_RESTART_ATTEMPTS) {
+            // Проверяем, прошло ли достаточно времени для сброса счетчика
+            if (current_time - last_restart_attempt > RESTART_COOLDOWN_MS) {
+                restart_attempts = 0;
+                Serial.println("Restart attempts counter reset after cooldown");
+            } else {
+                // Слишком много попыток, ждем
+                delay(10000); // Ждем 10 секунд
+                return;
+            }
+        }
+        
+        Serial.printf("WARNING: Bluetooth not enabled, attempting restart... (attempt %d/%d)\n", 
+                     restart_attempts + 1, MAX_RESTART_ATTEMPTS);
+        
+        last_restart_attempt = current_time;
+        restart_attempts++;
+        
         if (initialize_bluetooth()) {
             Serial.println("Bluetooth restarted successfully");
+            restart_attempts = 0; // Сброс счетчика при успехе
         } else {
+            Serial.printf("Bluetooth restart failed (attempt %d/%d)\n", restart_attempts, MAX_RESTART_ATTEMPTS);
             delay(5000); // Ждем 5 секунд перед повторной попыткой
             return;
         }
@@ -225,9 +255,19 @@ static bool initialize_bluetooth(void)
     
     // Проверяем текущее состояние контроллера
     esp_bt_controller_status_t controller_status = esp_bt_controller_get_status();
+    esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
     
+    // Если Bluetooth уже полностью инициализирован, просто возвращаем успех
+    if (controller_status == ESP_BT_CONTROLLER_STATUS_ENABLED && 
+        bluedroid_status == ESP_BLUEDROID_STATUS_ENABLED) {
+        Serial.println("Bluetooth already fully initialized");
+        bluetooth_initialized = true;
+        bluetooth_enabled = true;
+        return true;
+    }
+    
+    // Инициализация контроллера только если он не инициализирован
     if (controller_status == ESP_BT_CONTROLLER_STATUS_IDLE) {
-        // Инициализация контроллера Bluetooth
         esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
         
         Serial.println("Initializing BT controller...");
@@ -237,9 +277,11 @@ static bool initialize_bluetooth(void)
             return false;
         }
         Serial.println("BT controller initialized");
+    } else if (controller_status == ESP_BT_CONTROLLER_STATUS_ENABLED) {
+        Serial.println("BT controller already enabled");
     }
     
-    // Проверяем, нужно ли включать контроллер
+    // Включение контроллера только если он инициализирован, но не включен
     controller_status = esp_bt_controller_get_status();
     if (controller_status == ESP_BT_CONTROLLER_STATUS_INITED) {
         Serial.println("Enabling BT controller...");
@@ -251,9 +293,8 @@ static bool initialize_bluetooth(void)
         Serial.println("BT controller enabled");
     }
     
-    // Проверяем состояние Bluedroid
-    esp_bluedroid_status_t bluedroid_status = esp_bluedroid_get_status();
-    
+    // Инициализация Bluedroid только если он не инициализирован
+    bluedroid_status = esp_bluedroid_get_status();
     if (bluedroid_status == ESP_BLUEDROID_STATUS_UNINITIALIZED) {
         Serial.println("Initializing Bluedroid...");
         ret = esp_bluedroid_init();
@@ -262,9 +303,11 @@ static bool initialize_bluetooth(void)
             return false;
         }
         Serial.println("Bluedroid initialized");
+    } else if (bluedroid_status == ESP_BLUEDROID_STATUS_ENABLED) {
+        Serial.println("Bluedroid already enabled");
     }
     
-    // Проверяем, нужно ли включать Bluedroid
+    // Включение Bluedroid только если он инициализирован, но не включен
     bluedroid_status = esp_bluedroid_get_status();
     if (bluedroid_status == ESP_BLUEDROID_STATUS_INITIALIZED) {
         Serial.println("Enabling Bluedroid...");
@@ -276,25 +319,37 @@ static bool initialize_bluetooth(void)
         Serial.println("Bluedroid enabled");
     }
     
-    // Регистрация GAP callback
-    Serial.println("Registering GAP callback...");
-    ret = esp_bt_gap_register_callback(bt_gap_cb);
-    if (ret != ESP_OK) {
-        Serial.printf("GAP callback registration error: %s\n", esp_err_to_name(ret));
-        return false;
+    // Регистрация GAP callback только если еще не зарегистрирован
+    if (!gap_callback_registered) {
+        Serial.println("Registering GAP callback...");
+        ret = esp_bt_gap_register_callback(bt_gap_cb);
+        if (ret != ESP_OK) {
+            Serial.printf("GAP callback registration error: %s\n", esp_err_to_name(ret));
+            return false;
+        }
+        gap_callback_registered = true;
+        Serial.println("GAP callback registered");
+    } else {
+        Serial.println("GAP callback already registered");
     }
     
-    // Инициализация HID Host
-    Serial.println("Initializing HID Host...");
-    esp_hidh_config_t hidh_config = {
-        .callback = hid_host_cb,
-        .event_stack_size = 4096,
-        .callback_arg = NULL,
-    };
-    ret = esp_hidh_init(&hidh_config);
-    if (ret != ESP_OK) {
-        Serial.printf("HID Host init error: %s\n", esp_err_to_name(ret));
-        return false;
+    // Инициализация HID Host только если еще не инициализирован
+    if (!hidh_initialized) {
+        Serial.println("Initializing HID Host...");
+        esp_hidh_config_t hidh_config = {
+            .callback = hid_host_cb,
+            .event_stack_size = 4096,
+            .callback_arg = NULL,
+        };
+        ret = esp_hidh_init(&hidh_config);
+        if (ret != ESP_OK) {
+            Serial.printf("HID Host init error: %s\n", esp_err_to_name(ret));
+            return false;
+        }
+        hidh_initialized = true;
+        Serial.println("HID Host initialized");
+    } else {
+        Serial.println("HID Host already initialized");
     }
     
     bluetooth_initialized = true;
