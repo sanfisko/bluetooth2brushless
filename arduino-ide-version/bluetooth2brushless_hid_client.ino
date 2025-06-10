@@ -20,7 +20,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static const char *TAG = "BT13_MOTOR_CONTROL";
+// Удалена переменная TAG - используем Serial.println вместо ESP_LOGI
 
 // Пины для управления двигателем
 #define MOTOR_SPEED_PIN     25
@@ -439,103 +439,105 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
         break;
 
     case 2: // INPUT_EVENT
-        // Парсинг HID данных
-        esp_hidh_event_data_t *event_data = (esp_hidh_event_data_t *)param;
-        if (event_data && event_data->input.data && event_data->input.length > 0) {
-            // Логируем сырые данные для отладки
-            Serial.printf("HID data (%d bytes): ", event_data->input.length);
-            for (int i = 0; i < event_data->input.length; i++) {
-                Serial.printf("%02X ", event_data->input.data[i]);
-            }
-            Serial.println();
+        {
+            // Парсинг HID данных
+            esp_hidh_event_data_t *event_data = (esp_hidh_event_data_t *)param;
+            if (event_data && event_data->input.data && event_data->input.length > 0) {
+                // Логируем сырые данные для отладки
+                Serial.printf("HID data (%d bytes): ", event_data->input.length);
+                for (int i = 0; i < event_data->input.length; i++) {
+                    Serial.printf("%02X ", event_data->input.data[i]);
+                }
+                Serial.println();
 
-            // Обработка HID Consumer Control команд
-            // BT13 отправляет данные в формате: [Usage Low] [Usage High]
-            if (event_data->input.length >= 2) {
-                uint16_t usage = (event_data->input.data[1] << 8) | event_data->input.data[0];
-                uint32_t current_time = millis();
+                // Обработка HID Consumer Control команд
+                // BT13 отправляет данные в формате: [Usage Low] [Usage High]
+                if (event_data->input.length >= 2) {
+                    uint16_t usage = (event_data->input.data[1] << 8) | event_data->input.data[0];
+                    uint32_t current_time = millis();
 
-                // Проверяем, что это нажатие (не отпускание)
-                bool pressed = (usage != 0);
+                    // Проверяем, что это нажатие (не отпускание)
+                    bool pressed = (usage != 0);
 
-                if (pressed) {
-                    Serial.printf("HID Usage: 0x%04X\n", usage);
+                    if (pressed) {
+                        Serial.printf("HID Usage: 0x%04X\n", usage);
 
-                    // Обработка различных типов нажатий
-                    switch (usage) {
-                        case HID_USAGE_SHORT_PLUS: // 0x0004 - Короткое нажатие +
-                            Serial.println("Command: Short + (increase level)");
-                            short_press_plus();
-                            break;
+                        // Обработка различных типов нажатий
+                        switch (usage) {
+                            case HID_USAGE_SHORT_PLUS: // 0x0004 - Короткое нажатие +
+                                Serial.println("Command: Short + (increase level)");
+                                short_press_plus();
+                                break;
 
-                        case HID_USAGE_SHORT_MINUS: // 0x0008 - Короткое нажатие -
-                            Serial.println("Command: Short - (decrease level)");
-                            short_press_minus();
-                            break;
+                            case HID_USAGE_SHORT_MINUS: // 0x0008 - Короткое нажатие -
+                                Serial.println("Command: Short - (decrease level)");
+                                short_press_minus();
+                                break;
 
-                        case HID_USAGE_STOP: // 0x0010 - Кнопка STOP
-                            Serial.println("Command: STOP");
-                            motor_stop_command();
-                            break;
+                            case HID_USAGE_STOP: // 0x0010 - Кнопка STOP
+                                Serial.println("Command: STOP");
+                                motor_stop_command();
+                                break;
 
-                        case HID_USAGE_LONG_PLUS: // 0x0001 - Длительное нажатие +
-                            if (!is_long_press_detected || long_press_button != usage) {
-                                // Первое событие длительного нажатия +
-                                long_press_button = usage;
-                                long_press_start_time = current_time;
-                                is_long_press_detected = true;
-                                Serial.println("Command: Long + started (100% forward)");
-                                start_long_press_plus();
-                            }
-                            // Обновляем время последнего события длительного нажатия
-                            last_long_press_event_time = current_time;
-                            break;
+                            case HID_USAGE_LONG_PLUS: // 0x0001 - Длительное нажатие +
+                                if (!is_long_press_detected || long_press_button != usage) {
+                                    // Первое событие длительного нажатия +
+                                    long_press_button = usage;
+                                    long_press_start_time = current_time;
+                                    is_long_press_detected = true;
+                                    Serial.println("Command: Long + started (100% forward)");
+                                    start_long_press_plus();
+                                }
+                                // Обновляем время последнего события длительного нажатия
+                                last_long_press_event_time = current_time;
+                                break;
 
-                        case HID_USAGE_LONG_MINUS: // 0x0002 - Длительное нажатие -
-                            if (!is_long_press_detected || long_press_button != usage) {
-                                // Первое событие длительного нажатия -
-                                long_press_button = usage;
-                                long_press_start_time = current_time;
-                                is_long_press_detected = true;
-                                Serial.println("Command: Long - started (100% backward)");
-                                start_long_press_minus();
-                            }
-                            // Обновляем время последнего события длительного нажатия
-                            last_long_press_event_time = current_time;
-                            break;
+                            case HID_USAGE_LONG_MINUS: // 0x0002 - Длительное нажатие -
+                                if (!is_long_press_detected || long_press_button != usage) {
+                                    // Первое событие длительного нажатия -
+                                    long_press_button = usage;
+                                    long_press_start_time = current_time;
+                                    is_long_press_detected = true;
+                                    Serial.println("Command: Long - started (100% backward)");
+                                    start_long_press_minus();
+                                }
+                                // Обновляем время последнего события длительного нажатия
+                                last_long_press_event_time = current_time;
+                                break;
 
-                        default:
-                            Serial.printf("Unknown HID command: 0x%04X\n", usage);
-                            break;
-                    }
-                } else {
-                    // Кнопка отпущена (usage == 0)
-                    if (is_long_press_detected) {
-                        // Проверяем, прошло ли достаточно времени с последнего события длительного нажатия
-                        uint32_t time_since_last_event = current_time - last_long_press_event_time;
-                        
-                        if (time_since_last_event > LONG_PRESS_RELEASE_TIMEOUT_MS) {
-                            // Реальное отпускание длительного нажатия
-                            Serial.printf("Long press released (timeout: %lu ms)\n", time_since_last_event);
-                            end_long_press();
-                            
-                            // Сброс состояния длительного нажатия
-                            long_press_button = 0;
-                            is_long_press_detected = false;
-                            long_press_start_time = 0;
-                            last_long_press_event_time = 0;
-                        } else {
-                            // Промежуточное событие отпускания - игнорируем
-                            Serial.printf("Intermediate release ignored (time: %lu ms)\n", time_since_last_event);
+                            default:
+                                Serial.printf("Unknown HID command: 0x%04X\n", usage);
+                                break;
                         }
                     } else {
-                        Serial.println("Button released");
+                        // Кнопка отпущена (usage == 0)
+                        if (is_long_press_detected) {
+                            // Проверяем, прошло ли достаточно времени с последнего события длительного нажатия
+                            uint32_t time_since_last_event = current_time - last_long_press_event_time;
+                            
+                            if (time_since_last_event > LONG_PRESS_RELEASE_TIMEOUT_MS) {
+                                // Реальное отпускание длительного нажатия
+                                Serial.printf("Long press released (timeout: %lu ms)\n", time_since_last_event);
+                                end_long_press();
+                                
+                                // Сброс состояния длительного нажатия
+                                long_press_button = 0;
+                                is_long_press_detected = false;
+                                long_press_start_time = 0;
+                                last_long_press_event_time = 0;
+                            } else {
+                                // Промежуточное событие отпускания - игнорируем
+                                Serial.printf("Intermediate release ignored (time: %lu ms)\n", time_since_last_event);
+                            }
+                        } else {
+                            Serial.println("Button released");
+                        }
                     }
                 }
             }
-        }
 
-        led_blink(1, 50);
+            led_blink(1, 50);
+        }
         break;
 
     default:
