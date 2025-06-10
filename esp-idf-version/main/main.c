@@ -1,7 +1,7 @@
 /*
  * ESP32 HID Host для подключения к пульту BT13
  * Управление бесщеточным двигателем через HID команды
- * 
+ *
  * Автор: OpenHands
  * Дата: 2025-06-06
  */
@@ -57,8 +57,7 @@ static uint64_t press_start_time = 0;
 static const uint64_t long_press_threshold = 500000; // 500мс в микросекундах
 static uint16_t current_pressed_button = 0;
 static bool button_pressed = false;
-static bool long_press_active = false;
-static int saved_speed_level = 0; // Сохраненный уровень скорости для возврата после длинного нажатия
+// static int saved_speed_level = 0; // Не используется в текущей логике
 
 // HID Host переменные
 static bool bt13_connected = false;
@@ -108,36 +107,36 @@ void app_main(void)
     // Инициализация двигателя
     motor_init();
     ESP_LOGI(TAG, "Двигатель инициализирован");
-    
+
     // Инициализация таймера отключения (система стартует без соединения)
     disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
     // Инициализация Bluetooth
-    // Не освобождаем память BLE, так как используем BTDM режим
-    
+    // Используем только Classic BT (BLE отключен в конфигурации)
+
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    
+
     ESP_LOGI(TAG, "Инициализация BT контроллера...");
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Ошибка инициализации BT контроллера: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     ESP_LOGI(TAG, "Включение BT контроллера...");
     ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Ошибка включения BT контроллера: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     ESP_LOGI(TAG, "Инициализация Bluedroid...");
     ret = esp_bluedroid_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Ошибка инициализации Bluedroid: %s", esp_err_to_name(ret));
         return;
     }
-    
+
     ESP_LOGI(TAG, "Включение Bluedroid...");
     ret = esp_bluedroid_enable();
     if (ret != ESP_OK) {
@@ -156,8 +155,8 @@ void app_main(void)
     }));
 
     ESP_LOGI(TAG, "Bluetooth инициализирован");
-    ESP_LOGI(TAG, "Поиск пульта BT13 (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...", 
-             bt13_addr[0], bt13_addr[1], bt13_addr[2], 
+    ESP_LOGI(TAG, "Поиск пульта BT13 (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...",
+             bt13_addr[0], bt13_addr[1], bt13_addr[2],
              bt13_addr[3], bt13_addr[4], bt13_addr[5]);
 
     // Начать поиск BT13
@@ -170,14 +169,14 @@ void app_main(void)
     while (1) {
         // Обработка длинных нажатий
         check_long_press();
-        
+
         // Индикация состояния через LED
         if (bt13_connected && motor_enabled) {
             led_blink(1, 100);
         } else if (bt13_connected) {
             led_blink(1, 500);
         }
-        
+
         vTaskDelay(pdMS_TO_TICKS(50)); // Уменьшили задержку для более точной обработки
     }
 }
@@ -228,20 +227,20 @@ static void motor_update_state(void)
     // Вычисление PWM и направления на основе уровня скорости
     int actual_speed = 0;
     bool forward = true;
-    
+
     if (motor_enabled && speed_level != 0) {
         actual_speed = abs(speed_level) * pwm_per_level;
         forward = (speed_level > 0);
     }
-    
+
     // Обновление PWM для скорости
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, actual_speed));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
-    
+
     // Обновление направления
     gpio_set_level(MOTOR_DIR_PIN, forward ? 1 : 0);
-    
-    ESP_LOGI(TAG, "Состояние: %s | Уровень: %d/%d | PWM: %d/255 | Направление: %s%s", 
+
+    ESP_LOGI(TAG, "Состояние: %s | Уровень: %d/%d | PWM: %d/255 | Направление: %s%s",
              motor_enabled ? "ВКЛ" : "ВЫКЛ",
              speed_level, max_speed_level,
              actual_speed,
@@ -287,7 +286,6 @@ static void short_press_minus(void)
 static void long_press_plus(void)
 {
     if (!long_press_active) {
-        saved_speed_level = speed_level; // Сохраняем текущий уровень
         long_press_active = true;
     }
     speed_level = max_speed_level;
@@ -299,7 +297,6 @@ static void long_press_plus(void)
 static void long_press_minus(void)
 {
     if (!long_press_active) {
-        saved_speed_level = speed_level; // Сохраняем текущий уровень
         long_press_active = true;
     }
     speed_level = -max_speed_level;
@@ -346,33 +343,33 @@ static void led_blink(int times, int delay_ms)
 static void handle_hid_event(uint16_t usage, bool pressed)
 {
     if (!pressed) return; // Обрабатываем только нажатия
-    
+
     switch (usage) {
         case 0x00B5: // Next Song (короткое нажатие +)
             ESP_LOGI(TAG, "Короткое +: Увеличение уровня");
             short_press_plus();
             break;
-            
+
         case 0x00B6: // Previous Song (короткое нажатие -)
             ESP_LOGI(TAG, "Короткое -: Уменьшение уровня");
             short_press_minus();
             break;
-            
+
         case 0x00E9: // Volume Up (длинное нажатие +)
             ESP_LOGI(TAG, "Длинное +: Максимум вперед");
             long_press_plus();
             break;
-            
+
         case 0x00EA: // Volume Down (длинное нажатие -)
             ESP_LOGI(TAG, "Длинное -: Максимум назад");
             long_press_minus();
             break;
-            
+
         case 0x00CD: // Play/Pause (средняя кнопка)
             ESP_LOGI(TAG, "Средняя кнопка: СТОП");
             motor_stop();
             break;
-            
+
         default:
             ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
             break;
@@ -389,7 +386,7 @@ static void handle_button_press(uint8_t key, bool pressed)
         button_pressed = true;
         current_pressed_button = key;
         press_start_time = esp_timer_get_time();
-        
+
         if (key == 0xE9) { // Volume Up
             ESP_LOGI(TAG, "Volume+ нажата");
         } else if (key == 0xEA) { // Volume Down
@@ -404,7 +401,7 @@ static void handle_button_press(uint8_t key, bool pressed)
             uint64_t press_duration = esp_timer_get_time() - press_start_time;
             button_pressed = false;
             current_pressed_button = 0;
-            
+
             if (long_press_active) {
                 // Завершение длинного нажатия - остановка
                 long_press_active = false;
@@ -426,11 +423,11 @@ static void handle_button_press(uint8_t key, bool pressed)
 static void check_long_press(void)
 {
     // Проверка длинного нажатия
-    if (button_pressed && !long_press_active && 
+    if (button_pressed && !long_press_active &&
         (esp_timer_get_time() - press_start_time) >= long_press_threshold) {
-        
+
         long_press_active = true;
-        
+
         if (current_pressed_button == 0xE9) { // Volume Up
             long_press_plus();
         } else if (current_pressed_button == 0xEA) { // Volume Down
@@ -445,16 +442,16 @@ static void start_scan_for_bt13(void)
         ESP_LOGI(TAG, "Поиск уже выполняется, пропускаем...");
         return;
     }
-    
+
     if (bt13_connected) {
         ESP_LOGI(TAG, "BT13 уже подключен, поиск не нужен");
         return;
     }
-    
+
     ESP_LOGI(TAG, "Поиск пульта BT13 (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...",
-             bt13_addr[0], bt13_addr[1], bt13_addr[2], 
+             bt13_addr[0], bt13_addr[1], bt13_addr[2],
              bt13_addr[3], bt13_addr[4], bt13_addr[5]);
-    
+
     scanning_in_progress = true;
     esp_err_t ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
     if (ret != ESP_OK) {
@@ -475,10 +472,13 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
         if (memcmp(param->disc_res.bda, bt13_addr, ESP_BD_ADDR_LEN) == 0) {
             ESP_LOGI(TAG, "Найден BT13! Останавливаем поиск...");
             esp_bt_gap_cancel_discovery();
-            
+
             // Подключаемся к BT13
             ESP_LOGI(TAG, "Подключение к BT13...");
-            esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, 0);
+            esp_err_t ret = esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, 0);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Ошибка подключения к BT13: %s", esp_err_to_name(ret));
+            }
         }
         break;
     }
@@ -499,7 +499,7 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 static void hid_host_cb(void *handler_args, const char *event_name, int32_t event_id, void *param)
 {
     ESP_LOGI(TAG, "HID Host событие: %s (ID: %ld)", event_name ? event_name : "unknown", event_id);
-    
+
     // В ESP-IDF v5.4.1 изменился API для HID Host
     // Используем event_id для определения типа события
     switch (event_id) {
@@ -511,7 +511,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
         led_blink(3, 200);
         break;
 
-    case 1: // CLOSE_EVENT  
+    case 1: // CLOSE_EVENT
     case 4: // CLOSE_EVENT/DISCONNECT_EVENT (альтернативный ID)
         bt13_connected = false;
         disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS; // Запомнить время отключения
@@ -531,45 +531,46 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                 printf("%02X ", event_data->input.data[i]);
             }
             printf("\n");
-            
+
             // Обработка HID Consumer Control команд
             // BT13 отправляет данные в формате: [Usage Low] [Usage High]
             if (event_data->input.length >= 2) {
                 uint16_t usage = (event_data->input.data[1] << 8) | event_data->input.data[0];
-                
+
                 // Проверяем, что это нажатие (не отпускание)
                 bool pressed = (usage != 0);
-                
+
                 if (pressed) {
                     ESP_LOGI(TAG, "HID Usage: 0x%04X", usage);
-                    
+
                     // Обработка нажатия кнопки
                     if (!button_pressed) {
                         // Новое нажатие
                         button_pressed = true;
                         current_pressed_button = usage;
                         press_start_time = esp_timer_get_time();
-                        
+
                         // Определяем тип кнопки
                         switch (usage) {
-                            case 0x0004: // Кнопка +
-                            case 0x00B5:
+                            case 0x0004: // Кнопка + (согласно CRITICAL_FIXES.md)
+                            case 0x00B5: // Next Song (согласно BT13_HID_ANALYSIS.md)
                                 ESP_LOGI(TAG, "Нажата кнопка + (ожидание определения длины нажатия)");
                                 break;
-                                
-                            case 0x0008: // Кнопка -
-                            case 0x0001:
-                            case 0x00B6:
+
+                            case 0x0008: // Кнопка - (согласно CRITICAL_FIXES.md)
+                            case 0x0001: // Кнопка - (согласно CRITICAL_FIXES.md)
+                            case 0x0002: // Кнопка - (согласно EXAMPLE_OUTPUT.md)
+                            case 0x00B6: // Previous Song (согласно BT13_HID_ANALYSIS.md)
                                 ESP_LOGI(TAG, "Нажата кнопка - (ожидание определения длины нажатия)");
                                 break;
-                                
-                            case 0x0010: // Средняя кнопка (всегда СТОП)
-                            case 0x00CD:
+
+                            case 0x0010: // Средняя кнопка (согласно CRITICAL_FIXES.md)
+                            case 0x00CD: // Play/Pause (согласно BT13_HID_ANALYSIS.md)
                                 ESP_LOGI(TAG, "Команда: СТОП");
                                 motor_stop();
                                 print_motor_status();
                                 break;
-                                
+
                             default:
                                 ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
                                 break;
@@ -577,7 +578,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                     } else if (current_pressed_button == usage) {
                         // Продолжение удержания той же кнопки
                         uint64_t press_duration = esp_timer_get_time() - press_start_time;
-                        
+
                         if (press_duration >= long_press_threshold && !long_press_active) {
                             // Переход в режим длинного нажатия
                             switch (usage) {
@@ -586,9 +587,10 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                                     ESP_LOGI(TAG, "Команда: Длинное + (максимум вперед)");
                                     long_press_plus();
                                     break;
-                                    
+
                                 case 0x0008: // Длинное -
                                 case 0x0001:
+                                case 0x0002:
                                 case 0x00B6:
                                     ESP_LOGI(TAG, "Команда: Длинное - (максимум назад)");
                                     long_press_minus();
@@ -601,7 +603,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                     // Кнопка отпущена
                     if (button_pressed) {
                         uint64_t press_duration = esp_timer_get_time() - press_start_time;
-                        
+
                         if (press_duration < long_press_threshold && !long_press_active) {
                             // Короткое нажатие
                             switch (current_pressed_button) {
@@ -610,9 +612,10 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                                     ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
                                     short_press_plus();
                                     break;
-                                    
+
                                 case 0x0008: // Короткое -
                                 case 0x0001:
+                                case 0x0002:
                                 case 0x00B6:
                                     ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
                                     short_press_minus();
@@ -620,7 +623,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                             }
                             print_motor_status();
                         }
-                        
+
                         // Обработка отпускания кнопки
                         handle_button_release();
                         ESP_LOGI(TAG, "Кнопка отпущена");
@@ -631,7 +634,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                 }
             }
         }
-        
+
         led_blink(1, 50);
         break;
 
@@ -645,20 +648,20 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
 static void connection_monitor_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Задача мониторинга соединения запущена");
-    
+
     while (1) {
         // Проверяем флаг перезапуска каждые 500мс
         vTaskDelay(pdMS_TO_TICKS(500));
-        
+
         uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        
+
         // Проверка автоматической остановки мотора при длительном отключении
         if (!bt13_connected && disconnection_start_time > 0) {
             uint32_t disconnection_duration = current_time - disconnection_start_time;
-            
+
             if (disconnection_duration >= MOTOR_STOP_TIMEOUT_MS) {
                 if (motor_enabled || speed_level != 0) {
-                    ESP_LOGW(TAG, "⚠️  Мотор остановлен автоматически: нет соединения %lu секунд", 
+                    ESP_LOGW(TAG, "⚠️  Мотор остановлен автоматически: нет соединения %lu секунд",
                              disconnection_duration / 1000);
                     motor_stop();
                     led_blink(10, 100); // Длинная индикация автоматической остановки
@@ -667,14 +670,14 @@ static void connection_monitor_task(void *pvParameters)
                 disconnection_start_time = 0;
             }
         }
-        
+
         if (restart_scan_needed) {
             ESP_LOGI(TAG, "🔄 Обнаружен флаг перезапуска поиска!");
             restart_scan_needed = false;
-            
+
             ESP_LOGI(TAG, "⏳ Перезапуск поиска BT13 через 3 секунды...");
             vTaskDelay(pdMS_TO_TICKS(3000)); // Ждем 3 секунды перед перезапуском
-            
+
             if (!bt13_connected) { // Проверяем, что все еще не подключен
                 ESP_LOGI(TAG, "🔍 Запуск поиска BT13...");
                 start_scan_for_bt13();
@@ -682,16 +685,16 @@ static void connection_monitor_task(void *pvParameters)
                 ESP_LOGI(TAG, "✅ BT13 уже подключен, отмена перезапуска");
             }
         }
-        
+
         // Дополнительная проверка: если долго нет соединения, перезапускаем поиск
         static uint32_t last_connection_check = 0;
-        
+
         if (!bt13_connected && (current_time - last_connection_check > 30000)) { // 30 секунд
             ESP_LOGI(TAG, "Долгое отсутствие соединения, перезапуск поиска...");
             start_scan_for_bt13();
             last_connection_check = current_time;
         }
-        
+
         if (bt13_connected) {
             last_connection_check = current_time;
         }
