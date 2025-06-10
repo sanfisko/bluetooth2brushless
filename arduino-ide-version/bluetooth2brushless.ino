@@ -146,11 +146,12 @@ void setup() {
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(bt_gap_cb));
 
     // Инициализация HID Host
-    ESP_ERROR_CHECK(esp_hidh_init(&(esp_hidh_config_t){
+    esp_hidh_config_t hidh_config = {
         .callback = hid_host_cb,
         .event_stack_size = 4096,
         .callback_arg = NULL,
-    }));
+    };
+    ESP_ERROR_CHECK(esp_hidh_init(&hidh_config));
 
     Serial.println("Bluetooth initialized");
     Serial.printf("Searching for BT13 remote (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...\n",
