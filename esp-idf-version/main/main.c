@@ -94,7 +94,7 @@ void app_main(void)
     esp_err_t ret;
 
     ESP_LOGI(TAG, "=== ESP32 HID Host Motor Control ===");
-    ESP_LOGI(TAG, "Инициализация системы...");
+    ESP_LOGI(TAG, "System initialization...");
 
     // Инициализация NVS
     ret = nvs_flash_init();
@@ -106,7 +106,7 @@ void app_main(void)
 
     // Инициализация двигателя
     motor_init();
-    ESP_LOGI(TAG, "Двигатель инициализирован");
+    ESP_LOGI(TAG, "Motor initialized");
 
     // Инициализация таймера отключения (система стартует без соединения)
     disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -116,31 +116,31 @@ void app_main(void)
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 
-    ESP_LOGI(TAG, "Инициализация BT контроллера...");
+    ESP_LOGI(TAG, "Initializing BT controller...");
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Ошибка инициализации BT контроллера: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "BT controller init error: %s", esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(TAG, "Включение BT контроллера...");
+    ESP_LOGI(TAG, "Enabling BT controller...");
     ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Ошибка включения BT контроллера: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "BT controller enable error: %s", esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(TAG, "Инициализация Bluedroid...");
+    ESP_LOGI(TAG, "Initializing Bluedroid...");
     ret = esp_bluedroid_init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Ошибка инициализации Bluedroid: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Bluedroid init error: %s", esp_err_to_name(ret));
         return;
     }
 
-    ESP_LOGI(TAG, "Включение Bluedroid...");
+    ESP_LOGI(TAG, "Enabling Bluedroid...");
     ret = esp_bluedroid_enable();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Ошибка включения Bluedroid: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Bluedroid enable error: %s", esp_err_to_name(ret));
         return;
     }
 
@@ -154,8 +154,8 @@ void app_main(void)
         .callback_arg = NULL,
     }));
 
-    ESP_LOGI(TAG, "Bluetooth инициализирован");
-    ESP_LOGI(TAG, "Поиск пульта BT13 (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...",
+    ESP_LOGI(TAG, "Bluetooth initialized");
+    ESP_LOGI(TAG, "Searching for BT13 remote (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...",
              bt13_addr[0], bt13_addr[1], bt13_addr[2],
              bt13_addr[3], bt13_addr[4], bt13_addr[5]);
 
@@ -240,22 +240,22 @@ static void motor_update_state(void)
     // Обновление направления
     gpio_set_level(MOTOR_DIR_PIN, forward ? 1 : 0);
 
-    ESP_LOGI(TAG, "Состояние: %s | Уровень: %d/%d | PWM: %d/255 | Направление: %s%s",
-             motor_enabled ? "ВКЛ" : "ВЫКЛ",
+    ESP_LOGI(TAG, "State: %s | Level: %d/%d | PWM: %d/255 | Direction: %s%s",
+             motor_enabled ? "ON" : "OFF",
              speed_level, max_speed_level,
              actual_speed,
-             forward ? "ВПЕРЕД" : "НАЗАД",
-             long_press_active ? " | ДЛИННОЕ НАЖАТИЕ" : "");
+             forward ? "FORWARD" : "BACKWARD",
+             long_press_active ? " | LONG PRESS" : "");
 }
 
 static void print_motor_status(void)
 {
     if (!motor_enabled || speed_level == 0) {
-        ESP_LOGI(TAG, "Остановлен");
+        ESP_LOGI(TAG, "Stopped");
     } else {
         int percentage = (abs(speed_level) * 100) / max_speed_level;
-        const char* direction = (speed_level > 0) ? "вперед" : "назад";
-        ESP_LOGI(TAG, "Работает %s на %d%%", direction, percentage);
+        const char* direction = (speed_level > 0) ? "forward" : "backward";
+        ESP_LOGI(TAG, "Running %s at %d%%", direction, percentage);
     }
 }
 
@@ -265,7 +265,7 @@ static void short_press_plus(void)
         speed_level++;
         motor_enabled = true;
         motor_update_state();
-        ESP_LOGI(TAG, "Короткое +: Уровень скорости = %d", speed_level);
+        ESP_LOGI(TAG, "Short +: Speed level = %d", speed_level);
     }
 }
 
@@ -279,7 +279,7 @@ static void short_press_minus(void)
             motor_enabled = true;
         }
         motor_update_state();
-        ESP_LOGI(TAG, "Короткое -: Уровень скорости = %d", speed_level);
+        ESP_LOGI(TAG, "Short -: Speed level = %d", speed_level);
     }
 }
 
@@ -291,7 +291,7 @@ static void long_press_plus(void)
     speed_level = max_speed_level;
     motor_enabled = true;
     motor_update_state();
-    ESP_LOGI(TAG, "Длинное +: Максимальная скорость вперед (100%)");
+    ESP_LOGI(TAG, "Long +: Maximum forward speed (100%%)");
 }
 
 static void long_press_minus(void)
@@ -302,7 +302,7 @@ static void long_press_minus(void)
     speed_level = -max_speed_level;
     motor_enabled = true;
     motor_update_state();
-    ESP_LOGI(TAG, "Длинное -: Максимальная скорость назад (100%)");
+    ESP_LOGI(TAG, "Long -: Maximum backward speed (100%%)");
 }
 
 static void handle_button_release(void)
@@ -313,7 +313,7 @@ static void handle_button_release(void)
         speed_level = 0;
         motor_enabled = false;
         motor_update_state();
-        ESP_LOGI(TAG, "Отпускание длинного нажатия: Полная остановка");
+        ESP_LOGI(TAG, "Long press release: Full stop");
     }
     button_pressed = false;
     current_pressed_button = 0;
@@ -325,7 +325,7 @@ static void motor_stop(void)
     motor_enabled = false;
     long_press_active = false;
     motor_update_state();
-    ESP_LOGI(TAG, "Двигатель остановлен");
+    ESP_LOGI(TAG, "Motor stopped");
 }
 
 static void led_blink(int times, int delay_ms)
@@ -439,23 +439,23 @@ static void check_long_press(void)
 static void start_scan_for_bt13(void)
 {
     if (scanning_in_progress) {
-        ESP_LOGI(TAG, "Поиск уже выполняется, пропускаем...");
+        ESP_LOGI(TAG, "Scan already in progress, skipping...");
         return;
     }
 
     if (bt13_connected) {
-        ESP_LOGI(TAG, "BT13 уже подключен, поиск не нужен");
+        ESP_LOGI(TAG, "BT13 already connected, scan not needed");
         return;
     }
 
-    ESP_LOGI(TAG, "Поиск пульта BT13 (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...",
+    ESP_LOGI(TAG, "Searching for BT13 remote (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...",
              bt13_addr[0], bt13_addr[1], bt13_addr[2],
              bt13_addr[3], bt13_addr[4], bt13_addr[5]);
 
     scanning_in_progress = true;
     esp_err_t ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Ошибка запуска поиска: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Error starting discovery: %s", esp_err_to_name(ret));
         scanning_in_progress = false;
     }
 }
@@ -464,30 +464,30 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch (event) {
     case ESP_BT_GAP_DISC_RES_EVT: {
-        ESP_LOGI(TAG, "Найдено устройство: %02x:%02x:%02x:%02x:%02x:%02x",
+        ESP_LOGI(TAG, "Found device: %02x:%02x:%02x:%02x:%02x:%02x",
                  param->disc_res.bda[0], param->disc_res.bda[1], param->disc_res.bda[2],
                  param->disc_res.bda[3], param->disc_res.bda[4], param->disc_res.bda[5]);
 
         // Проверяем, это ли наш BT13
         if (memcmp(param->disc_res.bda, bt13_addr, ESP_BD_ADDR_LEN) == 0) {
-            ESP_LOGI(TAG, "Найден BT13! Останавливаем поиск...");
+            ESP_LOGI(TAG, "Found BT13! Stopping discovery...");
             esp_bt_gap_cancel_discovery();
 
             // Подключаемся к BT13
-            ESP_LOGI(TAG, "Подключение к BT13...");
-            esp_err_t ret = esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, 0);
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Ошибка подключения к BT13: %s", esp_err_to_name(ret));
+            ESP_LOGI(TAG, "Connecting to BT13...");
+            esp_hidh_dev_t *dev = esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, 0);
+            if (dev == NULL) {
+                ESP_LOGE(TAG, "Failed to connect to BT13");
             }
         }
         break;
     }
     case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
         if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
-            ESP_LOGI(TAG, "Поиск устройств завершен");
+            ESP_LOGI(TAG, "Device discovery completed");
             scanning_in_progress = false;
         } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
-            ESP_LOGI(TAG, "Поиск устройств начат");
+            ESP_LOGI(TAG, "Device discovery started");
             scanning_in_progress = true;
         }
         break;
@@ -498,16 +498,16 @@ static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 
 static void hid_host_cb(void *handler_args, const char *event_name, int32_t event_id, void *param)
 {
-    ESP_LOGI(TAG, "HID Host событие: %s (ID: %ld)", event_name ? event_name : "unknown", event_id);
+    ESP_LOGI(TAG, "HID Host event: %s (ID: %ld)", event_name ? event_name : "unknown", event_id);
 
     // В ESP-IDF v5.4.1 изменился API для HID Host
     // Используем event_id для определения типа события
     switch (event_id) {
     case 0: // OPEN_EVENT
-        ESP_LOGI(TAG, "BT13 подключен успешно!");
+        ESP_LOGI(TAG, "BT13 connected successfully!");
         bt13_connected = true;
-        disconnection_start_time = 0; // Сбросить таймер отключения
-        ESP_LOGI(TAG, "Готов к приему команд от пульта");
+        disconnection_start_time = 0; // Reset disconnection timer
+        ESP_LOGI(TAG, "Ready to receive commands from remote");
         led_blink(3, 200);
         break;
 
@@ -515,7 +515,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
     case 4: // CLOSE_EVENT/DISCONNECT_EVENT (альтернативный ID)
         bt13_connected = false;
         disconnection_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS; // Запомнить время отключения
-        ESP_LOGI(TAG, "BT13 отключен. Запланирован перезапуск поиска...");
+        ESP_LOGI(TAG, "BT13 disconnected. Restart scan scheduled...");
         motor_stop(); // Остановить двигатель при отключении
         led_blink(5, 100); // Индикация отключения
         restart_scan_needed = true; // Установить флаг для перезапуска
@@ -526,7 +526,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
         esp_hidh_event_data_t *event_data = (esp_hidh_event_data_t *)param;
         if (event_data && event_data->input.data && event_data->input.length > 0) {
             // Логируем сырые данные для отладки
-            ESP_LOGI(TAG, "HID данные (%d байт):", event_data->input.length);
+            ESP_LOGI(TAG, "HID data (%d bytes):", event_data->input.length);
             for (int i = 0; i < event_data->input.length; i++) {
                 printf("%02X ", event_data->input.data[i]);
             }
@@ -554,25 +554,25 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                         switch (usage) {
                             case 0x0004: // Кнопка + (согласно CRITICAL_FIXES.md)
                             case 0x00B5: // Next Song (согласно BT13_HID_ANALYSIS.md)
-                                ESP_LOGI(TAG, "Нажата кнопка + (ожидание определения длины нажатия)");
+                                ESP_LOGI(TAG, "Button + pressed (waiting for press duration)");
                                 break;
 
                             case 0x0008: // Кнопка - (согласно CRITICAL_FIXES.md)
                             case 0x0001: // Кнопка - (согласно CRITICAL_FIXES.md)
                             case 0x0002: // Кнопка - (согласно EXAMPLE_OUTPUT.md)
                             case 0x00B6: // Previous Song (согласно BT13_HID_ANALYSIS.md)
-                                ESP_LOGI(TAG, "Нажата кнопка - (ожидание определения длины нажатия)");
+                                ESP_LOGI(TAG, "Button - pressed (waiting for press duration)");
                                 break;
 
                             case 0x0010: // Средняя кнопка (согласно CRITICAL_FIXES.md)
                             case 0x00CD: // Play/Pause (согласно BT13_HID_ANALYSIS.md)
-                                ESP_LOGI(TAG, "Команда: СТОП");
+                                ESP_LOGI(TAG, "Command: STOP");
                                 motor_stop();
                                 print_motor_status();
                                 break;
 
                             default:
-                                ESP_LOGI(TAG, "Неизвестная HID команда: 0x%04X", usage);
+                                ESP_LOGI(TAG, "Unknown HID command: 0x%04X", usage);
                                 break;
                         }
                     } else if (current_pressed_button == usage) {
@@ -584,7 +584,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                             switch (usage) {
                                 case 0x0004: // Длинное +
                                 case 0x00B5:
-                                    ESP_LOGI(TAG, "Команда: Длинное + (максимум вперед)");
+                                    ESP_LOGI(TAG, "Command: Long + (maximum forward)");
                                     long_press_plus();
                                     break;
 
@@ -592,7 +592,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                                 case 0x0001:
                                 case 0x0002:
                                 case 0x00B6:
-                                    ESP_LOGI(TAG, "Команда: Длинное - (максимум назад)");
+                                    ESP_LOGI(TAG, "Command: Long - (maximum backward)");
                                     long_press_minus();
                                     break;
                             }
@@ -609,7 +609,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                             switch (current_pressed_button) {
                                 case 0x0004: // Короткое +
                                 case 0x00B5:
-                                    ESP_LOGI(TAG, "Команда: Короткое + (увеличение уровня)");
+                                    ESP_LOGI(TAG, "Command: Short + (increase level)");
                                     short_press_plus();
                                     break;
 
@@ -617,7 +617,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                                 case 0x0001:
                                 case 0x0002:
                                 case 0x00B6:
-                                    ESP_LOGI(TAG, "Команда: Короткое - (уменьшение уровня)");
+                                    ESP_LOGI(TAG, "Command: Short - (decrease level)");
                                     short_press_minus();
                                     break;
                             }
@@ -626,7 +626,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
 
                         // Обработка отпускания кнопки
                         handle_button_release();
-                        ESP_LOGI(TAG, "Кнопка отпущена");
+                        ESP_LOGI(TAG, "Button released");
                         if (long_press_active) {
                             print_motor_status();
                         }
@@ -639,7 +639,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
         break;
 
     default:
-        ESP_LOGI(TAG, "HID Host событие: %ld", event_id);
+        ESP_LOGI(TAG, "HID Host event: %ld", event_id);
         break;
     }
 }
@@ -647,7 +647,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
 // Задача мониторинга соединения
 static void connection_monitor_task(void *pvParameters)
 {
-    ESP_LOGI(TAG, "Задача мониторинга соединения запущена");
+    ESP_LOGI(TAG, "Connection monitoring task started");
 
     while (1) {
         // Проверяем флаг перезапуска каждые 500мс
@@ -661,7 +661,7 @@ static void connection_monitor_task(void *pvParameters)
 
             if (disconnection_duration >= MOTOR_STOP_TIMEOUT_MS) {
                 if (motor_enabled || speed_level != 0) {
-                    ESP_LOGW(TAG, "⚠️  Мотор остановлен автоматически: нет соединения %lu секунд",
+                    ESP_LOGW(TAG, "Motor stopped automatically: no connection for %lu seconds",
                              disconnection_duration / 1000);
                     motor_stop();
                     led_blink(10, 100); // Длинная индикация автоматической остановки
@@ -672,25 +672,25 @@ static void connection_monitor_task(void *pvParameters)
         }
 
         if (restart_scan_needed) {
-            ESP_LOGI(TAG, "🔄 Обнаружен флаг перезапуска поиска!");
+            ESP_LOGI(TAG, "Restart scan flag detected!");
             restart_scan_needed = false;
 
-            ESP_LOGI(TAG, "⏳ Перезапуск поиска BT13 через 3 секунды...");
-            vTaskDelay(pdMS_TO_TICKS(3000)); // Ждем 3 секунды перед перезапуском
+            ESP_LOGI(TAG, "Restarting BT13 scan in 3 seconds...");
+            vTaskDelay(pdMS_TO_TICKS(3000)); // Wait 3 seconds before restart
 
-            if (!bt13_connected) { // Проверяем, что все еще не подключен
-                ESP_LOGI(TAG, "🔍 Запуск поиска BT13...");
+            if (!bt13_connected) { // Check if still not connected
+                ESP_LOGI(TAG, "Starting BT13 scan...");
                 start_scan_for_bt13();
             } else {
-                ESP_LOGI(TAG, "✅ BT13 уже подключен, отмена перезапуска");
+                ESP_LOGI(TAG, "BT13 already connected, canceling restart");
             }
         }
 
         // Дополнительная проверка: если долго нет соединения, перезапускаем поиск
         static uint32_t last_connection_check = 0;
 
-        if (!bt13_connected && (current_time - last_connection_check > 30000)) { // 30 секунд
-            ESP_LOGI(TAG, "Долгое отсутствие соединения, перезапуск поиска...");
+        if (!bt13_connected && (current_time - last_connection_check > 30000)) { // 30 seconds
+            ESP_LOGI(TAG, "Long disconnection, restarting scan...");
             start_scan_for_bt13();
             last_connection_check = current_time;
         }
