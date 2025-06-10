@@ -5,7 +5,7 @@ ESP32 + пульт BT13 = управление мотором
 ## 🚀 Быстрый старт
 
 ### Arduino IDE (рекомендуется)
-1. Открой `arduino-ide-version/bluetooth2brushless_hid_client.ino`
+1. Открой `arduino-ide-version/bluetooth2brushless.ino`
 2. Загрузи в ESP32
 3. Включи BT13 → автоподключение
 
