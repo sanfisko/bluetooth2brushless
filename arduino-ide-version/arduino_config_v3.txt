@@ -147,12 +147,12 @@ https://espressif.github.io/arduino-esp32/package_esp32_index.json
 • Проверьте, что в настройках платы включен Bluetooth
 • Убедитесь, что выбрана правильная плата ESP32
 
-ОШИБКА: "Bluetooth initialization failed"
-РЕШЕНИЕ:
-• Проверьте вывод Serial Monitor для детальной диагностики
-• Убедитесь, что ESP32 поддерживает Classic Bluetooth
-• Попробуйте перезагрузить ESP32
-• Проверьте, что другие Bluetooth устройства не блокируют инициализацию
+ОШИБКА: "BT controller init error: ESP_ERR_INVALID_STATE"
+РЕШЕНИЕ (ИСПРАВЛЕНО В НОВОЙ ВЕРСИИ):
+• Эта ошибка была исправлена упрощением инициализации Bluetooth
+• Убедитесь, что используете обновленную версию bluetooth2brushless.ino
+• Новая версия использует простую последовательную инициализацию без проверок состояния
+• Добавлена инициализация NVS flash, которая требуется для Bluetooth
 
 ПРОБЛЕМА: Компиляция занимает много времени
 РЕШЕНИЕ:
@@ -176,37 +176,23 @@ https://espressif.github.io/arduino-esp32/package_esp32_index.json
 • Скорость: 115200 бод
 • Окончание строки: "Новая строка"
 
-ОЖИДАЕМЫЙ ВЫВОД ПРИ ЗАПУСКЕ (v3.x):
+ОЖИДАЕМЫЙ ВЫВОД ПРИ ЗАПУСКЕ (v3.x ИСПРАВЛЕННАЯ):
 ```
 === ESP32 HID Host Motor Control v3.x ===
 System initialization...
 Initializing motor PWM...
 PWM initialized successfully
+State: OFF | Level: 0/10 | PWM: 0/255 | Direction: FORWARD
 Motor initialization completed
 Motor initialized
-Checking Bluetooth state...
-BT Controller status: 0
-BT Controller: IDLE (not initialized)
-Bluedroid status: 0
-Bluedroid: UNINITIALIZED
-Bluetooth state check completed
-Starting Bluetooth initialization...
 Initializing BT controller...
-BT controller initialized
 Enabling BT controller...
-BT controller enabled
 Initializing Bluedroid...
-Bluedroid initialized
 Enabling Bluedroid...
-Bluedroid enabled
-Registering GAP callback...
-Initializing HID Host...
-Bluetooth initialization completed successfully
-Bluetooth initialized successfully
+Bluetooth initialized
 Searching for BT13 remote (MAC: 8B:EB:75:4E:65:97)...
 Connection monitoring task started
 Device discovery started
-System ready!
 ```
 
 ОЖИДАЕМЫЙ ВЫВОД ПРИ ПОДКЛЮЧЕНИИ:
