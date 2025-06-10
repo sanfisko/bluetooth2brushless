@@ -572,13 +572,13 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
             // BT13 отправляет данные в формате: [Usage Low] [Usage High]
             if (event_data->input.length >= 2) {
                 uint16_t usage = (event_data->input.data[1] << 8) | event_data->input.data[0];
+                uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
                 // Проверяем, что это нажатие (не отпускание)
                 bool pressed = (usage != 0);
 
                 if (pressed) {
                     ESP_LOGI(TAG, "HID Usage: 0x%04X", usage);
-                    uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
                     // Обработка различных типов нажатий
                     switch (usage) {
