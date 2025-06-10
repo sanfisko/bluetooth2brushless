@@ -54,8 +54,12 @@ static const int pwm_per_level = 25;     // PWM на уровень (255/10 ≈ 
 
 // Переменные для отслеживания длинных нажатий
 static uint32_t long_press_start_time = 0;
+static uint32_t last_long_press_event_time = 0;
 static uint16_t long_press_button = 0;
 static bool is_long_press_detected = false;
+
+// Таймаут для определения реального отпускания длительного нажатия (мс)
+#define LONG_PRESS_RELEASE_TIMEOUT_MS 200
 
 // HID Usage коды для кнопок BT13
 #define HID_USAGE_SHORT_PLUS    0x0004  // Короткое нажатие +
@@ -172,6 +176,24 @@ void app_main(void)
 
     // Основной цикл
     while (1) {
+        // Проверка таймаута длительного нажатия
+        if (is_long_press_detected && last_long_press_event_time > 0) {
+            uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            uint32_t time_since_last_event = current_time - last_long_press_event_time;
+            
+            if (time_since_last_event > LONG_PRESS_RELEASE_TIMEOUT_MS) {
+                // Таймаут - считаем что кнопка отпущена
+                ESP_LOGI(TAG, "Long press timeout detected (%lu ms)", time_since_last_event);
+                end_long_press();
+                
+                // Сброс состояния длительного нажатия
+                long_press_button = 0;
+                is_long_press_detected = false;
+                long_press_start_time = 0;
+                last_long_press_event_time = 0;
+            }
+        }
+        
         // Индикация состояния через LED
         if (bt13_connected && motor_enabled) {
             led_blink(1, 100);
@@ -576,7 +598,7 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                             break;
 
                         case HID_USAGE_LONG_PLUS: // 0x0001 - Длительное нажатие +
-                            if (long_press_button != usage) {
+                            if (!is_long_press_detected || long_press_button != usage) {
                                 // Первое событие длительного нажатия +
                                 long_press_button = usage;
                                 long_press_start_time = current_time;
@@ -584,11 +606,12 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                                 ESP_LOGI(TAG, "Command: Long + started (100%% forward)");
                                 start_long_press_plus();
                             }
-                            // Игнорируем повторяющиеся события длительного нажатия
+                            // Обновляем время последнего события длительного нажатия
+                            last_long_press_event_time = current_time;
                             break;
 
                         case HID_USAGE_LONG_MINUS: // 0x0002 - Длительное нажатие -
-                            if (long_press_button != usage) {
+                            if (!is_long_press_detected || long_press_button != usage) {
                                 // Первое событие длительного нажатия -
                                 long_press_button = usage;
                                 long_press_start_time = current_time;
@@ -596,7 +619,8 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                                 ESP_LOGI(TAG, "Command: Long - started (100%% backward)");
                                 start_long_press_minus();
                             }
-                            // Игнорируем повторяющиеся события длительного нажатия
+                            // Обновляем время последнего события длительного нажатия
+                            last_long_press_event_time = current_time;
                             break;
 
                         default:
@@ -606,16 +630,26 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
                 } else {
                     // Кнопка отпущена (usage == 0)
                     if (is_long_press_detected) {
-                        // Отпускание длительного нажатия
-                        ESP_LOGI(TAG, "Long press released");
-                        end_long_press();
+                        // Проверяем, прошло ли достаточно времени с последнего события длительного нажатия
+                        uint32_t time_since_last_event = current_time - last_long_press_event_time;
                         
-                        // Сброс состояния длительного нажатия
-                        long_press_button = 0;
-                        is_long_press_detected = false;
-                        long_press_start_time = 0;
+                        if (time_since_last_event > LONG_PRESS_RELEASE_TIMEOUT_MS) {
+                            // Реальное отпускание длительного нажатия
+                            ESP_LOGI(TAG, "Long press released (timeout: %lu ms)", time_since_last_event);
+                            end_long_press();
+                            
+                            // Сброс состояния длительного нажатия
+                            long_press_button = 0;
+                            is_long_press_detected = false;
+                            long_press_start_time = 0;
+                            last_long_press_event_time = 0;
+                        } else {
+                            // Промежуточное событие отпускания - игнорируем
+                            ESP_LOGI(TAG, "Intermediate release ignored (time: %lu ms)", time_since_last_event);
+                        }
+                    } else {
+                        ESP_LOGI(TAG, "Button released");
                     }
-                    ESP_LOGI(TAG, "Button released");
                 }
             }
         }
