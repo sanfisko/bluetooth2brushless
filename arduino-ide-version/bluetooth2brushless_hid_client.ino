@@ -1,387 +1,602 @@
 /*
- * ESP32 HID Client для подключения к пульту BT13
+ * ESP32 HID Host для подключения к пульту BT13
  * Управление бесщеточным двигателем через HID команды
- * 
+ *
  * ВАЖНО: Этот код требует ESP32 Arduino Core версии 2.0.0 или выше
- * и библиотеки ESP32-BLE-Arduino
- * 
+ * Основан на рабочей версии ESP-IDF с полной поддержкой HID Host API
+ *
  * Автор: OpenHands
- * Дата: 2025-06-06
+ * Дата: 2025-06-10
  */
 
-#include "BluetoothSerial.h"
+#include <Arduino.h>
+#include "esp_system.h"
+#include "esp_log.h"
+#include "esp_bt.h"
 #include "esp_bt_main.h"
-#include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
-#include "esp_err.h"
+#include "esp_bt_device.h"
+#include "esp_hidh.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-// Определение пинов
-const int speedPin = 25;        // Пин PWM для управления скоростью
-const int directionPin = 26;    // GPIO-пин для управления направлением
-const int ledPin = 2;           // Встроенный LED для индикации состояния
+static const char *TAG = "BT13_MOTOR_CONTROL";
 
-// Настройки PWM
-const int freq = 1000;          // Частота PWM (1кГц)
-const int pwmChannel = 0;       // Канал PWM
-const int resolution = 8;       // Разрешение 8 бит (0-255)
+// Пины для управления двигателем
+#define MOTOR_SPEED_PIN     25
+#define MOTOR_DIR_PIN       26
+#define LED_PIN             2
 
-// Переменные управления двигателем
-int speedLevel = 0;             // Уровень скорости от -10 до +10 (0 = стоп)
-bool motorEnabled = false;      // Состояние двигателя (включен/выключен)
-int currentSpeed = 0;           // Текущая скорость PWM (0-255)
-bool currentDirection = true;   // Текущее направление (true = вперед)
-
-// Настройки управления
-const int maxSpeedLevel = 10;   // Максимальный уровень скорости
-const int speedLevels = 21;     // Всего уровней: -10..0..+10
-const int pwmPerLevel = 25;     // PWM на уровень (255/10 ≈ 25)
+// PWM настройки
+#define PWM_FREQUENCY       1000
+#define PWM_RESOLUTION      8
+#define PWM_CHANNEL         0
 
 // MAC адрес пульта BT13
-uint8_t bt13_address[6] = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
-bool bt13_connected = false;
-bool scanning = false;
+static esp_bd_addr_t bt13_addr = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
 
-BluetoothSerial SerialBT;
+// Переменные управления двигателем
+static int speed_level = 0;        // Уровень скорости от -10 до +10 (0 = стоп)
+static bool motor_enabled = false; // Состояние двигателя
+static bool long_press_active = false; // Флаг длинного нажатия
+
+// Настройки управления
+static const int max_speed_level = 10;   // Максимальный уровень скорости
+static const int pwm_per_level = 25;     // PWM на уровень (255/10 ≈ 25)
+
+// Переменные для отслеживания длинных нажатий
+static uint32_t long_press_start_time = 0;
+static uint32_t last_long_press_event_time = 0;
+static uint16_t long_press_button = 0;
+static bool is_long_press_detected = false;
+
+// Таймаут для определения реального отпускания длительного нажатия (мс)
+#define LONG_PRESS_RELEASE_TIMEOUT_MS 200
+
+// HID Usage коды для кнопок BT13
+#define HID_USAGE_SHORT_PLUS    0x0004  // Короткое нажатие +
+#define HID_USAGE_SHORT_MINUS   0x0008  // Короткое нажатие -
+#define HID_USAGE_STOP          0x0010  // Кнопка STOP
+#define HID_USAGE_LONG_PLUS     0x0001  // Длительное нажатие + (повторяющиеся события)
+#define HID_USAGE_LONG_MINUS    0x0002  // Длительное нажатие - (повторяющиеся события)
+
+// HID Host переменные
+static bool bt13_connected = false;
+static bool restart_scan_needed = false;
+static bool scanning_in_progress = false;
+
+// Переменные для автоматической остановки мотора
+static uint32_t disconnection_start_time = 0;
+static const uint32_t MOTOR_STOP_TIMEOUT_MS = 10000; // 10 секунд
 
 // Функции управления двигателем
-void shortPressPlus();          // Короткое нажатие +
-void shortPressMinus();         // Короткое нажатие -
-void longPressPlus();           // Длинное нажатие +
-void longPressMinus();          // Длинное нажатие -
-void stopMotor();               // Остановка мотора
-void updateMotorState();        // Обновление состояния мотора
-void handleButtonPress(uint8_t key, bool pressed); // Обработка нажатий
-void checkLongPress();          // Проверка длинного нажатия
-void blinkLED(int times, int delayMs);
+static void motor_init(void);
+static void motor_update_state(void);
+static void print_motor_status(void);
+
+// Функции обработки кнопок
+static void short_press_plus(void);
+static void short_press_minus(void);
+static void start_long_press_plus(void);
+static void start_long_press_minus(void);
+static void end_long_press(void);
+static void motor_stop_command(void);
+static void motor_stop(void);
+static void led_blink(int times, int delay_ms);
 
 // Bluetooth функции
-void startScanForBT13();
-void connectToBT13();
-bool isBT13Device(esp_bd_addr_t address);
-
-// Callback для GAP событий
-void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
+static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
+static void hid_host_cb(void *handler_args, const char *event_name, int32_t event_id, void *param);
+static void start_scan_for_bt13(void);
+static void connection_monitor_task(void *pvParameters);
 
 void setup() {
-  // Инициализация серийного порта для отладки
-  Serial.begin(115200);
-  Serial.println("=== ESP32 HID Client Motor Control ===");
-  Serial.println("Инициализация системы...");
+    esp_err_t ret;
 
-  // Настройка PWM для управления скоростью (новый API ESP32 Core 3.x)
-  if (!ledcAttach(speedPin, freq, resolution)) {
-    Serial.println("Ошибка инициализации PWM!");
-    return;
-  }
-  ledcWrite(speedPin, currentSpeed);
-  Serial.println("PWM инициализирован на пине " + String(speedPin));
+    Serial.begin(115200);
+    Serial.println("=== ESP32 HID Host Motor Control ===");
+    Serial.println("System initialization...");
 
-  // Настройка пина направления
-  pinMode(directionPin, OUTPUT);
-  digitalWrite(directionPin, currentDirection ? HIGH : LOW);
-  Serial.println("Пин направления инициализирован на пине " + String(directionPin));
+    // Инициализация двигателя
+    motor_init();
+    Serial.println("Motor initialized");
 
-  // Настройка индикаторного LED
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
-  Serial.println("LED индикатор инициализирован на пине " + String(ledPin));
+    // Инициализация таймера отключения (система стартует без соединения)
+    disconnection_start_time = millis();
 
-  // Инициализация Bluetooth
-  if (!SerialBT.begin("ESP32_HID_Client")) {
-    Serial.println("Ошибка инициализации Bluetooth!");
-    return;
-  }
-  
-  // Регистрация callback для GAP событий
-  esp_bt_gap_register_callback(gap_callback);
-  
-  Serial.println("Bluetooth инициализирован");
-  Serial.print("Поиск пульта BT13 (MAC: ");
-  for (int i = 0; i < 6; i++) {
-    Serial.printf("%02X", bt13_address[i]);
-    if (i < 5) Serial.print(":");
-  }
-  Serial.println(")...");
+    // Инициализация Bluetooth
+    // Используем только Classic BT (BLE отключен в конфигурации)
 
-  // Начальное состояние
-  updateMotorState();
-  
-  // Начать поиск BT13
-  startScanForBT13();
-  
-  Serial.println("Система готова к работе!");
-  Serial.println("=========================================");
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+
+    Serial.println("Initializing BT controller...");
+    ret = esp_bt_controller_init(&bt_cfg);
+    if (ret != ESP_OK) {
+        Serial.printf("BT controller init error: %s\n", esp_err_to_name(ret));
+        return;
+    }
+
+    Serial.println("Enabling BT controller...");
+    ret = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT);
+    if (ret != ESP_OK) {
+        Serial.printf("BT controller enable error: %s\n", esp_err_to_name(ret));
+        return;
+    }
+
+    Serial.println("Initializing Bluedroid...");
+    ret = esp_bluedroid_init();
+    if (ret != ESP_OK) {
+        Serial.printf("Bluedroid init error: %s\n", esp_err_to_name(ret));
+        return;
+    }
+
+    Serial.println("Enabling Bluedroid...");
+    ret = esp_bluedroid_enable();
+    if (ret != ESP_OK) {
+        Serial.printf("Bluedroid enable error: %s\n", esp_err_to_name(ret));
+        return;
+    }
+
+    // Регистрация GAP callback
+    esp_bt_gap_register_callback(bt_gap_cb);
+
+    // Инициализация HID Host
+    esp_hidh_config_t hidh_config = {
+        .callback = hid_host_cb,
+        .event_stack_size = 4096,
+        .callback_arg = NULL,
+    };
+    esp_hidh_init(&hidh_config);
+
+    Serial.println("Bluetooth initialized");
+    Serial.printf("Searching for BT13 remote (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...\n",
+             bt13_addr[0], bt13_addr[1], bt13_addr[2],
+             bt13_addr[3], bt13_addr[4], bt13_addr[5]);
+
+    // Начать поиск BT13
+    start_scan_for_bt13();
+
+    // Создать задачу мониторинга соединения
+    xTaskCreate(connection_monitor_task, "connection_monitor", 2048, NULL, 5, NULL);
+
+    Serial.println("System ready!");
 }
 
 void loop() {
-  // Проверка подключения к BT13
-  if (!bt13_connected && !scanning) {
-    Serial.println("Попытка переподключения к BT13...");
-    startScanForBT13();
-    delay(5000);
-  }
-
-  // BT13 сам определяет длинные нажатия - checkLongPress больше не нужна
-
-  // Индикация состояния через LED
-  updateLEDStatus();
-  
-  // Проверка входящих данных (если используется Serial режим)
-  if (SerialBT.available()) {
-    String data = SerialBT.readString();
-    Serial.println("Получены данные: " + data);
-    processHIDData(data);
-  }
-  
-  delay(50); // Уменьшили задержку для более точной обработки длинных нажатий
-}
-
-void startScanForBT13() {
-  if (scanning) return;
-  
-  scanning = true;
-  Serial.println("Начинаем поиск устройств...");
-  
-  // Начать обнаружение устройств
-  esp_err_t result = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
-  if (result != ESP_OK) {
-    Serial.println("Ошибка запуска поиска: " + String(result));
-    scanning = false;
-  }
-}
-
-void connectToBT13() {
-  Serial.println("Попытка подключения к BT13...");
-  
-  // Попытка подключения через SerialBT
-  if (SerialBT.connect(bt13_address)) {
-    bt13_connected = true;
-    Serial.println("Успешно подключен к BT13!");
-    blinkLED(3, 200);
-  } else {
-    Serial.println("Ошибка подключения к BT13");
-    bt13_connected = false;
-  }
-}
-
-bool isBT13Device(esp_bd_addr_t address) {
-  for (int i = 0; i < 6; i++) {
-    if (address[i] != bt13_address[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-void gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
-  switch (event) {
-    case ESP_BT_GAP_DISC_RES_EVT: {
-      Serial.printf("Найдено устройство: %02x:%02x:%02x:%02x:%02x:%02x\n",
-                   param->disc_res.bda[0], param->disc_res.bda[1], param->disc_res.bda[2],
-                   param->disc_res.bda[3], param->disc_res.bda[4], param->disc_res.bda[5]);
-      
-      if (isBT13Device(param->disc_res.bda)) {
-        Serial.println("Найден BT13! Останавливаем поиск...");
-        esp_bt_gap_cancel_discovery();
-        scanning = false;
+    // Проверка таймаута длительного нажатия
+    if (is_long_press_detected && last_long_press_event_time > 0) {
+        uint32_t current_time = millis();
+        uint32_t time_since_last_event = current_time - last_long_press_event_time;
         
-        // Копируем адрес и подключаемся
-        memcpy(bt13_address, param->disc_res.bda, 6);
-        connectToBT13();
-      }
-      break;
+        if (time_since_last_event > LONG_PRESS_RELEASE_TIMEOUT_MS) {
+            // Таймаут - считаем что кнопка отпущена
+            Serial.printf("Long press timeout detected (%lu ms)\n", time_since_last_event);
+            end_long_press();
+            
+            // Сброс состояния длительного нажатия
+            long_press_button = 0;
+            is_long_press_detected = false;
+            long_press_start_time = 0;
+            last_long_press_event_time = 0;
+        }
     }
     
-    case ESP_BT_GAP_DISC_STATE_CHANGED_EVT: {
-      if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
-        Serial.println("Поиск устройств завершен");
-        scanning = false;
-      } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
-        Serial.println("Поиск устройств начат");
-      }
-      break;
+    // Индикация состояния через LED
+    if (bt13_connected && motor_enabled) {
+        led_blink(1, 100);
+    } else if (bt13_connected) {
+        led_blink(1, 500);
     }
-    
-    default:
-      break;
-  }
+
+    delay(50); // Уменьшили задержку для более точной обработки
 }
 
-void processHIDData(String data) {
-  // Обработка HID команд с поддержкой коротких/длинных нажатий
-  data.trim();
-  
-  if (data == "VOL_UP" || data == "+") {
-    handleButtonPress(0xE9, true); // Volume Up нажата
-  } else if (data == "VOL_DOWN" || data == "-") {
-    handleButtonPress(0xEA, true); // Volume Down нажата
-  } else if (data == "PLAY_PAUSE" || data == "P") {
-    Serial.println("Команда: СТОП");
-    stopMotor();
-  } else if (data.startsWith("RELEASE_")) {
-    // Обработка отпускания кнопок
-    if (data == "RELEASE_VOL_UP") {
-      handleButtonPress(0xE9, false);
-    } else if (data == "RELEASE_VOL_DOWN") {
-      handleButtonPress(0xEA, false);
+static void motor_init(void)
+{
+    // Настройка PWM для скорости
+    if (!ledcAttach(MOTOR_SPEED_PIN, PWM_FREQUENCY, PWM_RESOLUTION)) {
+        Serial.println("Error initializing PWM!");
+        return;
     }
-  } else {
-    Serial.println("Неизвестная команда: " + data);
-  }
+    ledcWrite(MOTOR_SPEED_PIN, 0);
+
+    // Настройка пина направления
+    pinMode(MOTOR_DIR_PIN, OUTPUT);
+    digitalWrite(MOTOR_DIR_PIN, HIGH);
+
+    // Настройка LED
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+
+    // Начальное состояние
+    motor_update_state();
 }
 
-// Обработка реальных HID событий от BT13
-void processHIDEvent(uint16_t usage, bool pressed) {
-  if (!pressed) return; // Обрабатываем только нажатия
-  
-  switch (usage) {
-    case 0x00B5: // Next Song (короткое нажатие +)
-      Serial.println("Короткое +: Увеличение уровня");
-      shortPressPlus();
-      break;
-      
-    case 0x00B6: // Previous Song (короткое нажатие -)
-      Serial.println("Короткое -: Уменьшение уровня");
-      shortPressMinus();
-      break;
-      
-    case 0x00E9: // Volume Up (длинное нажатие +)
-      Serial.println("Длинное +: Максимум вперед");
-      longPressPlus();
-      break;
-      
-    case 0x00EA: // Volume Down (длинное нажатие -)
-      Serial.println("Длинное -: Максимум назад");
-      longPressMinus();
-      break;
-      
-    case 0x00CD: // Play/Pause (средняя кнопка)
-      Serial.println("Средняя кнопка: СТОП");
-      stopMotor();
-      break;
-      
-    default:
-      Serial.printf("Неизвестная HID команда: 0x%04X\n", usage);
-      break;
-  }
+static void motor_update_state(void)
+{
+    // Вычисление PWM и направления на основе уровня скорости
+    int actual_speed = 0;
+    bool forward = true;
+
+    if (motor_enabled && speed_level != 0) {
+        actual_speed = abs(speed_level) * pwm_per_level;
+        forward = (speed_level > 0);
+    }
+
+    // Обновление PWM для скорости
+    ledcWrite(MOTOR_SPEED_PIN, actual_speed);
+
+    // Обновление направления
+    digitalWrite(MOTOR_DIR_PIN, forward ? HIGH : LOW);
+
+    Serial.printf("State: %s | Level: %d/%d | PWM: %d/255 | Direction: %s%s\n",
+             motor_enabled ? "ON" : "OFF",
+             speed_level, max_speed_level,
+             actual_speed,
+             forward ? "FORWARD" : "BACKWARD",
+             long_press_active ? " | LONG PRESS" : "");
 }
 
-// Упрощенная обработка - BT13 сам различает короткие/длинные нажатия
-void handleButtonPress(uint8_t key, bool pressed) {
-  // Эта функция теперь используется только для совместимости
-  // Основная обработка происходит в processHIDEvent()
-  if (pressed) {
-    Serial.printf("Устаревший вызов: кнопка 0x%02X нажата\n", key);
-  } else {
-    Serial.printf("Устаревший вызов: кнопка 0x%02X отпущена\n", key);
-  }
-}
-
-void checkLongPress() {
-  // Функция больше не нужна - BT13 сам определяет длинные нажатия
-  // и отправляет соответствующие HID коды (VOLUME_UP/VOLUME_DOWN)
-}
-
-void shortPressPlus() {
-  if (speedLevel < maxSpeedLevel) {
-    speedLevel++;
-    motorEnabled = true;
-    updateMotorState();
-    Serial.print("Короткое +: Уровень скорости = ");
-    Serial.println(speedLevel);
-  }
-}
-
-void shortPressMinus() {
-  if (speedLevel > -maxSpeedLevel) {
-    speedLevel--;
-    if (speedLevel == 0) {
-      motorEnabled = false;
+static void print_motor_status(void)
+{
+    if (!motor_enabled || speed_level == 0) {
+        Serial.println("Stopped");
     } else {
-      motorEnabled = true;
+        int percentage = (abs(speed_level) * 100) / max_speed_level;
+        const char* direction = (speed_level > 0) ? "forward" : "backward";
+        Serial.printf("Running %s at %d%%\n", direction, percentage);
     }
-    updateMotorState();
-    Serial.print("Короткое -: Уровень скорости = ");
-    Serial.println(speedLevel);
-  }
 }
 
-void longPressPlus() {
-  speedLevel = maxSpeedLevel;
-  motorEnabled = true;
-  updateMotorState();
-  Serial.println("Длинное +: Максимальная скорость вперед");
-}
-
-void longPressMinus() {
-  speedLevel = -maxSpeedLevel;
-  motorEnabled = true;
-  updateMotorState();
-  Serial.println("Длинное -: Максимальная скорость назад");
-}
-
-void stopMotor() {
-  speedLevel = 0;
-  motorEnabled = false;
-  updateMotorState();
-  Serial.println("Двигатель остановлен");
-}
-
-void updateMotorState() {
-  // Вычисление PWM и направления на основе уровня скорости
-  if (motorEnabled && speedLevel != 0) {
-    currentSpeed = abs(speedLevel) * pwmPerLevel;
-    currentDirection = (speedLevel > 0);
-  } else {
-    currentSpeed = 0;
-    currentDirection = true;
-  }
-  
-  // Обновление PWM для скорости (новый API)
-  ledcWrite(speedPin, currentSpeed);
-  
-  // Обновление направления
-  digitalWrite(directionPin, currentDirection ? HIGH : LOW);
-  
-  // Отправка статуса
-  String status = "Статус: ";
-  status += motorEnabled ? "ВКЛ" : "ВЫКЛ";
-  status += " | Уровень: " + String(speedLevel) + "/" + String(maxSpeedLevel);
-  status += " | PWM: " + String(currentSpeed) + "/255";
-  status += " | Направление: " + String(currentDirection ? "ВПЕРЕД" : "НАЗАД");
-  
-  Serial.println(status);
-}
-
-void blinkLED(int times, int delayMs) {
-  for (int i = 0; i < times; i++) {
-    digitalWrite(ledPin, HIGH);
-    delay(delayMs);
-    digitalWrite(ledPin, LOW);
-    delay(delayMs);
-  }
-}
-
-void updateLEDStatus() {
-  static unsigned long lastBlink = 0;
-  static bool ledState = false;
-  
-  if (bt13_connected && motorEnabled && currentSpeed > 0) {
-    // Быстрое мигание при работе двигателя
-    if (millis() - lastBlink > 200) {
-      ledState = !ledState;
-      digitalWrite(ledPin, ledState);
-      lastBlink = millis();
+// Короткое нажатие + : добавляет 10% к скорости
+static void short_press_plus(void)
+{
+    if (speed_level < max_speed_level) {
+        speed_level++;
+        motor_enabled = (speed_level != 0);
+        motor_update_state();
+        int percentage = (speed_level * 100) / max_speed_level;
+        Serial.printf("Short +: Speed level = %d (%d%% forward)\n", speed_level, percentage);
+        print_motor_status();
+    } else {
+        Serial.println("Short +: Already at maximum forward speed");
     }
-  } else if (bt13_connected) {
-    // Медленное мигание при подключении
-    if (millis() - lastBlink > 1000) {
-      ledState = !ledState;
-      digitalWrite(ledPin, ledState);
-      lastBlink = millis();
+}
+
+// Короткое нажатие - : убавляет 10% от скорости, может переключить направление
+static void short_press_minus(void)
+{
+    if (speed_level > -max_speed_level) {
+        speed_level--;
+        motor_enabled = (speed_level != 0);
+        motor_update_state();
+        
+        if (speed_level == 0) {
+            Serial.println("Short -: Motor stopped");
+        } else {
+            int percentage = (abs(speed_level) * 100) / max_speed_level;
+            const char* direction = (speed_level > 0) ? "forward" : "backward";
+            Serial.printf("Short -: Speed level = %d (%d%% %s)\n", speed_level, percentage, direction);
+        }
+        print_motor_status();
+    } else {
+        Serial.println("Short -: Already at maximum backward speed");
     }
-  } else {
-    // LED выключен при отсутствии подключения
-    digitalWrite(ledPin, LOW);
-  }
+}
+
+// Длительное нажатие + : мгновенно 100% вперед
+static void start_long_press_plus(void)
+{
+    if (!long_press_active) {
+        long_press_active = true;
+        speed_level = max_speed_level;
+        motor_enabled = true;
+        motor_update_state();
+        Serial.println("Long + started: 100% forward speed");
+        print_motor_status();
+    }
+}
+
+// Длительное нажатие - : мгновенно 100% назад
+static void start_long_press_minus(void)
+{
+    if (!long_press_active) {
+        long_press_active = true;
+        speed_level = -max_speed_level;
+        motor_enabled = true;
+        motor_update_state();
+        Serial.println("Long - started: 100% backward speed");
+        print_motor_status();
+    }
+}
+
+// Отпускание длительного нажатия: полная остановка
+static void end_long_press(void)
+{
+    if (long_press_active) {
+        long_press_active = false;
+        speed_level = 0;
+        motor_enabled = false;
+        motor_update_state();
+        Serial.println("Long press released: Full stop");
+        print_motor_status();
+    }
+}
+
+// Кнопка STOP: полная остановка
+static void motor_stop_command(void)
+{
+    long_press_active = false;
+    speed_level = 0;
+    motor_enabled = false;
+    motor_update_state();
+    Serial.println("STOP button: Motor stopped");
+    print_motor_status();
+}
+
+static void motor_stop(void)
+{
+    speed_level = 0;
+    motor_enabled = false;
+    long_press_active = false;
+    motor_update_state();
+    Serial.println("Motor stopped");
+}
+
+static void led_blink(int times, int delay_ms)
+{
+    for (int i = 0; i < times; i++) {
+        digitalWrite(LED_PIN, HIGH);
+        delay(delay_ms);
+        digitalWrite(LED_PIN, LOW);
+        delay(delay_ms);
+    }
+}
+
+static void start_scan_for_bt13(void)
+{
+    if (scanning_in_progress) {
+        Serial.println("Scan already in progress, skipping...");
+        return;
+    }
+
+    if (bt13_connected) {
+        Serial.println("BT13 already connected, scan not needed");
+        return;
+    }
+
+    Serial.printf("Searching for BT13 remote (MAC: %02X:%02X:%02X:%02X:%02X:%02X)...\n",
+             bt13_addr[0], bt13_addr[1], bt13_addr[2],
+             bt13_addr[3], bt13_addr[4], bt13_addr[5]);
+
+    scanning_in_progress = true;
+    esp_err_t ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+    if (ret != ESP_OK) {
+        Serial.printf("Error starting discovery: %s\n", esp_err_to_name(ret));
+        scanning_in_progress = false;
+    }
+}
+
+static void bt_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
+{
+    switch (event) {
+    case ESP_BT_GAP_DISC_RES_EVT: {
+        Serial.printf("Found device: %02x:%02x:%02x:%02x:%02x:%02x\n",
+                 param->disc_res.bda[0], param->disc_res.bda[1], param->disc_res.bda[2],
+                 param->disc_res.bda[3], param->disc_res.bda[4], param->disc_res.bda[5]);
+
+        // Проверяем, это ли наш BT13
+        if (memcmp(param->disc_res.bda, bt13_addr, ESP_BD_ADDR_LEN) == 0) {
+            Serial.println("Found BT13! Stopping discovery...");
+            esp_bt_gap_cancel_discovery();
+
+            // Подключаемся к BT13
+            Serial.println("Connecting to BT13...");
+            esp_hidh_dev_t *dev = esp_hidh_dev_open(param->disc_res.bda, ESP_HID_TRANSPORT_BT, 0);
+            if (dev == NULL) {
+                Serial.println("Failed to connect to BT13");
+            }
+        }
+        break;
+    }
+    case ESP_BT_GAP_DISC_STATE_CHANGED_EVT:
+        if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
+            Serial.println("Device discovery completed");
+            scanning_in_progress = false;
+        } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
+            Serial.println("Device discovery started");
+            scanning_in_progress = true;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+static void hid_host_cb(void *handler_args, const char *event_name, int32_t event_id, void *param)
+{
+    Serial.printf("HID Host event: %s (ID: %ld)\n", event_name ? event_name : "unknown", event_id);
+
+    // В ESP-IDF v5.4.1 изменился API для HID Host
+    // Используем event_id для определения типа события
+    switch (event_id) {
+    case 0: // OPEN_EVENT
+        Serial.println("BT13 connected successfully!");
+        bt13_connected = true;
+        disconnection_start_time = 0; // Reset disconnection timer
+        Serial.println("Ready to receive commands from remote");
+        led_blink(3, 200);
+        break;
+
+    case 1: // CLOSE_EVENT
+    case 4: // CLOSE_EVENT/DISCONNECT_EVENT (альтернативный ID)
+        bt13_connected = false;
+        disconnection_start_time = millis(); // Запомнить время отключения
+        Serial.println("BT13 disconnected. Restart scan scheduled...");
+        motor_stop(); // Остановить двигатель при отключении
+        led_blink(5, 100); // Индикация отключения
+        restart_scan_needed = true; // Установить флаг для перезапуска
+        break;
+
+    case 2: // INPUT_EVENT
+        // Парсинг HID данных
+        esp_hidh_event_data_t *event_data = (esp_hidh_event_data_t *)param;
+        if (event_data && event_data->input.data && event_data->input.length > 0) {
+            // Логируем сырые данные для отладки
+            Serial.printf("HID data (%d bytes): ", event_data->input.length);
+            for (int i = 0; i < event_data->input.length; i++) {
+                Serial.printf("%02X ", event_data->input.data[i]);
+            }
+            Serial.println();
+
+            // Обработка HID Consumer Control команд
+            // BT13 отправляет данные в формате: [Usage Low] [Usage High]
+            if (event_data->input.length >= 2) {
+                uint16_t usage = (event_data->input.data[1] << 8) | event_data->input.data[0];
+                uint32_t current_time = millis();
+
+                // Проверяем, что это нажатие (не отпускание)
+                bool pressed = (usage != 0);
+
+                if (pressed) {
+                    Serial.printf("HID Usage: 0x%04X\n", usage);
+
+                    // Обработка различных типов нажатий
+                    switch (usage) {
+                        case HID_USAGE_SHORT_PLUS: // 0x0004 - Короткое нажатие +
+                            Serial.println("Command: Short + (increase level)");
+                            short_press_plus();
+                            break;
+
+                        case HID_USAGE_SHORT_MINUS: // 0x0008 - Короткое нажатие -
+                            Serial.println("Command: Short - (decrease level)");
+                            short_press_minus();
+                            break;
+
+                        case HID_USAGE_STOP: // 0x0010 - Кнопка STOP
+                            Serial.println("Command: STOP");
+                            motor_stop_command();
+                            break;
+
+                        case HID_USAGE_LONG_PLUS: // 0x0001 - Длительное нажатие +
+                            if (!is_long_press_detected || long_press_button != usage) {
+                                // Первое событие длительного нажатия +
+                                long_press_button = usage;
+                                long_press_start_time = current_time;
+                                is_long_press_detected = true;
+                                Serial.println("Command: Long + started (100% forward)");
+                                start_long_press_plus();
+                            }
+                            // Обновляем время последнего события длительного нажатия
+                            last_long_press_event_time = current_time;
+                            break;
+
+                        case HID_USAGE_LONG_MINUS: // 0x0002 - Длительное нажатие -
+                            if (!is_long_press_detected || long_press_button != usage) {
+                                // Первое событие длительного нажатия -
+                                long_press_button = usage;
+                                long_press_start_time = current_time;
+                                is_long_press_detected = true;
+                                Serial.println("Command: Long - started (100% backward)");
+                                start_long_press_minus();
+                            }
+                            // Обновляем время последнего события длительного нажатия
+                            last_long_press_event_time = current_time;
+                            break;
+
+                        default:
+                            Serial.printf("Unknown HID command: 0x%04X\n", usage);
+                            break;
+                    }
+                } else {
+                    // Кнопка отпущена (usage == 0)
+                    if (is_long_press_detected) {
+                        // Проверяем, прошло ли достаточно времени с последнего события длительного нажатия
+                        uint32_t time_since_last_event = current_time - last_long_press_event_time;
+                        
+                        if (time_since_last_event > LONG_PRESS_RELEASE_TIMEOUT_MS) {
+                            // Реальное отпускание длительного нажатия
+                            Serial.printf("Long press released (timeout: %lu ms)\n", time_since_last_event);
+                            end_long_press();
+                            
+                            // Сброс состояния длительного нажатия
+                            long_press_button = 0;
+                            is_long_press_detected = false;
+                            long_press_start_time = 0;
+                            last_long_press_event_time = 0;
+                        } else {
+                            // Промежуточное событие отпускания - игнорируем
+                            Serial.printf("Intermediate release ignored (time: %lu ms)\n", time_since_last_event);
+                        }
+                    } else {
+                        Serial.println("Button released");
+                    }
+                }
+            }
+        }
+
+        led_blink(1, 50);
+        break;
+
+    default:
+        Serial.printf("HID Host event: %ld\n", event_id);
+        break;
+    }
+}
+
+// Задача мониторинга соединения
+static void connection_monitor_task(void *pvParameters)
+{
+    Serial.println("Connection monitoring task started");
+
+    while (1) {
+        // Проверяем флаг перезапуска каждые 500мс
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        uint32_t current_time = millis();
+
+        // Проверка автоматической остановки мотора при длительном отключении
+        if (!bt13_connected && disconnection_start_time > 0) {
+            uint32_t disconnection_duration = current_time - disconnection_start_time;
+
+            if (disconnection_duration >= MOTOR_STOP_TIMEOUT_MS) {
+                if (motor_enabled || speed_level != 0) {
+                    Serial.printf("Motor stopped automatically: no connection for %lu seconds\n",
+                             disconnection_duration / 1000);
+                    motor_stop();
+                    led_blink(10, 100); // Длинная индикация автоматической остановки
+                }
+                // Сбросить таймер, чтобы не повторять остановку
+                disconnection_start_time = 0;
+            }
+        }
+
+        if (restart_scan_needed) {
+            Serial.println("Restart scan flag detected!");
+            restart_scan_needed = false;
+
+            Serial.println("Restarting BT13 scan in 3 seconds...");
+            vTaskDelay(pdMS_TO_TICKS(3000)); // Wait 3 seconds before restart
+
+            if (!bt13_connected) { // Check if still not connected
+                Serial.println("Starting BT13 scan...");
+                start_scan_for_bt13();
+            } else {
+                Serial.println("BT13 already connected, canceling restart");
+            }
+        }
+
+        // Дополнительная проверка: если долго нет соединения, перезапускаем поиск
+        static uint32_t last_connection_check = 0;
+
+        if (!bt13_connected && (current_time - last_connection_check > 30000)) { // 30 seconds
+            Serial.println("Long disconnection, restarting scan...");
+            start_scan_for_bt13();
+            last_connection_check = current_time;
+        }
+
+        if (bt13_connected) {
+            last_connection_check = current_time;
+        }
+    }
 }
