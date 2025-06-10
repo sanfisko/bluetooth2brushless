@@ -53,11 +53,16 @@ static const int max_speed_level = 10;   // Максимальный урове�
 static const int pwm_per_level = 25;     // PWM на уровень (255/10 ≈ 25)
 
 // Переменные для отслеживания длинных нажатий
-static uint64_t press_start_time = 0;
-static const uint64_t long_press_threshold = 500000; // 500мс в микросекундах
-static uint16_t current_pressed_button = 0;
-static bool button_pressed = false;
-// static int saved_speed_level = 0; // Не используется в текущей логике
+static uint32_t long_press_start_time = 0;
+static uint16_t long_press_button = 0;
+static bool is_long_press_detected = false;
+
+// HID Usage коды для кнопок BT13
+#define HID_USAGE_SHORT_PLUS    0x0004  // Короткое нажатие +
+#define HID_USAGE_SHORT_MINUS   0x0008  // Короткое нажатие -
+#define HID_USAGE_STOP          0x0010  // Кнопка STOP
+#define HID_USAGE_LONG_PLUS     0x0001  // Длительное нажатие + (повторяющиеся события)
+#define HID_USAGE_LONG_MINUS    0x0002  // Длительное нажатие - (повторяющиеся события)
 
 // HID Host переменные
 static bool bt13_connected = false;
@@ -76,10 +81,10 @@ static void print_motor_status(void);
 // Функции обработки кнопок
 static void short_press_plus(void);
 static void short_press_minus(void);
-static void long_press_plus(void);
-static void long_press_minus(void);
-static void handle_button_release(void);
-static void check_long_press(void);
+static void start_long_press_plus(void);
+static void start_long_press_minus(void);
+static void end_long_press(void);
+static void motor_stop_command(void);
 static void motor_stop(void);
 static void led_blink(int times, int delay_ms);
 
@@ -167,9 +172,6 @@ void app_main(void)
 
     // Основной цикл
     while (1) {
-        // Обработка длинных нажатий
-        check_long_press();
-
         // Индикация состояния через LED
         if (bt13_connected && motor_enabled) {
             led_blink(1, 100);
@@ -259,64 +261,90 @@ static void print_motor_status(void)
     }
 }
 
+// Короткое нажатие + : добавляет 10% к скорости
 static void short_press_plus(void)
 {
     if (speed_level < max_speed_level) {
         speed_level++;
-        motor_enabled = true;
+        motor_enabled = (speed_level != 0);
         motor_update_state();
-        ESP_LOGI(TAG, "Short +: Speed level = %d", speed_level);
+        int percentage = (speed_level * 100) / max_speed_level;
+        ESP_LOGI(TAG, "Short +: Speed level = %d (%d%% forward)", speed_level, percentage);
+        print_motor_status();
+    } else {
+        ESP_LOGI(TAG, "Short +: Already at maximum forward speed");
     }
 }
 
+// Короткое нажатие - : убавляет 10% от скорости, может переключить направление
 static void short_press_minus(void)
 {
     if (speed_level > -max_speed_level) {
         speed_level--;
-        if (speed_level == 0) {
-            motor_enabled = false;
-        } else {
-            motor_enabled = true;
-        }
+        motor_enabled = (speed_level != 0);
         motor_update_state();
-        ESP_LOGI(TAG, "Short -: Speed level = %d", speed_level);
+        
+        if (speed_level == 0) {
+            ESP_LOGI(TAG, "Short -: Motor stopped");
+        } else {
+            int percentage = (abs(speed_level) * 100) / max_speed_level;
+            const char* direction = (speed_level > 0) ? "forward" : "backward";
+            ESP_LOGI(TAG, "Short -: Speed level = %d (%d%% %s)", speed_level, percentage, direction);
+        }
+        print_motor_status();
+    } else {
+        ESP_LOGI(TAG, "Short -: Already at maximum backward speed");
     }
 }
 
-static void long_press_plus(void)
+// Длительное нажатие + : мгновенно 100% вперед
+static void start_long_press_plus(void)
 {
     if (!long_press_active) {
         long_press_active = true;
+        speed_level = max_speed_level;
+        motor_enabled = true;
+        motor_update_state();
+        ESP_LOGI(TAG, "Long + started: 100%% forward speed");
+        print_motor_status();
     }
-    speed_level = max_speed_level;
-    motor_enabled = true;
-    motor_update_state();
-    ESP_LOGI(TAG, "Long +: Maximum forward speed (100%%)");
 }
 
-static void long_press_minus(void)
+// Длительное нажатие - : мгновенно 100% назад
+static void start_long_press_minus(void)
 {
     if (!long_press_active) {
         long_press_active = true;
+        speed_level = -max_speed_level;
+        motor_enabled = true;
+        motor_update_state();
+        ESP_LOGI(TAG, "Long - started: 100%% backward speed");
+        print_motor_status();
     }
-    speed_level = -max_speed_level;
-    motor_enabled = true;
-    motor_update_state();
-    ESP_LOGI(TAG, "Long -: Maximum backward speed (100%%)");
 }
 
-static void handle_button_release(void)
+// Отпускание длительного нажатия: полная остановка
+static void end_long_press(void)
 {
     if (long_press_active) {
-        // При отпускании длинного нажатия - полная остановка
         long_press_active = false;
         speed_level = 0;
         motor_enabled = false;
         motor_update_state();
-        ESP_LOGI(TAG, "Long press release: Full stop");
+        ESP_LOGI(TAG, "Long press released: Full stop");
+        print_motor_status();
     }
-    button_pressed = false;
-    current_pressed_button = 0;
+}
+
+// Кнопка STOP: полная остановка
+static void motor_stop_command(void)
+{
+    long_press_active = false;
+    speed_level = 0;
+    motor_enabled = false;
+    motor_update_state();
+    ESP_LOGI(TAG, "STOP button: Motor stopped");
+    print_motor_status();
 }
 
 static void motor_stop(void)
@@ -420,21 +448,7 @@ static void handle_button_press(uint8_t key, bool pressed)
 }
 */
 
-static void check_long_press(void)
-{
-    // Проверка длинного нажатия
-    if (button_pressed && !long_press_active &&
-        (esp_timer_get_time() - press_start_time) >= long_press_threshold) {
 
-        long_press_active = true;
-
-        if (current_pressed_button == 0xE9) { // Volume Up
-            long_press_plus();
-        } else if (current_pressed_button == 0xEA) { // Volume Down
-            long_press_minus();
-        }
-    }
-}
 
 static void start_scan_for_bt13(void)
 {
@@ -542,95 +556,66 @@ static void hid_host_cb(void *handler_args, const char *event_name, int32_t even
 
                 if (pressed) {
                     ESP_LOGI(TAG, "HID Usage: 0x%04X", usage);
+                    uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
-                    // Обработка нажатия кнопки
-                    if (!button_pressed) {
-                        // Новое нажатие
-                        button_pressed = true;
-                        current_pressed_button = usage;
-                        press_start_time = esp_timer_get_time();
+                    // Обработка различных типов нажатий
+                    switch (usage) {
+                        case HID_USAGE_SHORT_PLUS: // 0x0004 - Короткое нажатие +
+                            ESP_LOGI(TAG, "Command: Short + (increase level)");
+                            short_press_plus();
+                            break;
 
-                        // Определяем тип кнопки
-                        switch (usage) {
-                            case 0x0004: // Кнопка + (согласно CRITICAL_FIXES.md)
-                            case 0x00B5: // Next Song (согласно BT13_HID_ANALYSIS.md)
-                                ESP_LOGI(TAG, "Button + pressed (waiting for press duration)");
-                                break;
+                        case HID_USAGE_SHORT_MINUS: // 0x0008 - Короткое нажатие -
+                            ESP_LOGI(TAG, "Command: Short - (decrease level)");
+                            short_press_minus();
+                            break;
 
-                            case 0x0008: // Кнопка - (согласно CRITICAL_FIXES.md)
-                            case 0x0001: // Кнопка - (согласно CRITICAL_FIXES.md)
-                            case 0x0002: // Кнопка - (согласно EXAMPLE_OUTPUT.md)
-                            case 0x00B6: // Previous Song (согласно BT13_HID_ANALYSIS.md)
-                                ESP_LOGI(TAG, "Button - pressed (waiting for press duration)");
-                                break;
+                        case HID_USAGE_STOP: // 0x0010 - Кнопка STOP
+                            ESP_LOGI(TAG, "Command: STOP");
+                            motor_stop_command();
+                            break;
 
-                            case 0x0010: // Средняя кнопка (согласно CRITICAL_FIXES.md)
-                            case 0x00CD: // Play/Pause (согласно BT13_HID_ANALYSIS.md)
-                                ESP_LOGI(TAG, "Command: STOP");
-                                motor_stop();
-                                print_motor_status();
-                                break;
-
-                            default:
-                                ESP_LOGI(TAG, "Unknown HID command: 0x%04X", usage);
-                                break;
-                        }
-                    } else if (current_pressed_button == usage) {
-                        // Продолжение удержания той же кнопки
-                        uint64_t press_duration = esp_timer_get_time() - press_start_time;
-
-                        if (press_duration >= long_press_threshold && !long_press_active) {
-                            // Переход в режим длинного нажатия
-                            switch (usage) {
-                                case 0x0004: // Длинное +
-                                case 0x00B5:
-                                    ESP_LOGI(TAG, "Command: Long + (maximum forward)");
-                                    long_press_plus();
-                                    break;
-
-                                case 0x0008: // Длинное -
-                                case 0x0001:
-                                case 0x0002:
-                                case 0x00B6:
-                                    ESP_LOGI(TAG, "Command: Long - (maximum backward)");
-                                    long_press_minus();
-                                    break;
+                        case HID_USAGE_LONG_PLUS: // 0x0001 - Длительное нажатие +
+                            if (long_press_button != usage) {
+                                // Первое событие длительного нажатия +
+                                long_press_button = usage;
+                                long_press_start_time = current_time;
+                                is_long_press_detected = true;
+                                ESP_LOGI(TAG, "Command: Long + started (100%% forward)");
+                                start_long_press_plus();
                             }
-                            print_motor_status();
-                        }
+                            // Игнорируем повторяющиеся события длительного нажатия
+                            break;
+
+                        case HID_USAGE_LONG_MINUS: // 0x0002 - Длительное нажатие -
+                            if (long_press_button != usage) {
+                                // Первое событие длительного нажатия -
+                                long_press_button = usage;
+                                long_press_start_time = current_time;
+                                is_long_press_detected = true;
+                                ESP_LOGI(TAG, "Command: Long - started (100%% backward)");
+                                start_long_press_minus();
+                            }
+                            // Игнорируем повторяющиеся события длительного нажатия
+                            break;
+
+                        default:
+                            ESP_LOGI(TAG, "Unknown HID command: 0x%04X", usage);
+                            break;
                     }
                 } else {
-                    // Кнопка отпущена
-                    if (button_pressed) {
-                        uint64_t press_duration = esp_timer_get_time() - press_start_time;
-
-                        if (press_duration < long_press_threshold && !long_press_active) {
-                            // Короткое нажатие
-                            switch (current_pressed_button) {
-                                case 0x0004: // Короткое +
-                                case 0x00B5:
-                                    ESP_LOGI(TAG, "Command: Short + (increase level)");
-                                    short_press_plus();
-                                    break;
-
-                                case 0x0008: // Короткое -
-                                case 0x0001:
-                                case 0x0002:
-                                case 0x00B6:
-                                    ESP_LOGI(TAG, "Command: Short - (decrease level)");
-                                    short_press_minus();
-                                    break;
-                            }
-                            print_motor_status();
-                        }
-
-                        // Обработка отпускания кнопки
-                        handle_button_release();
-                        ESP_LOGI(TAG, "Button released");
-                        if (long_press_active) {
-                            print_motor_status();
-                        }
+                    // Кнопка отпущена (usage == 0)
+                    if (is_long_press_detected) {
+                        // Отпускание длительного нажатия
+                        ESP_LOGI(TAG, "Long press released");
+                        end_long_press();
+                        
+                        // Сброс состояния длительного нажатия
+                        long_press_button = 0;
+                        is_long_press_detected = false;
+                        long_press_start_time = 0;
                     }
+                    ESP_LOGI(TAG, "Button released");
                 }
             }
         }
