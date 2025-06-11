@@ -138,42 +138,65 @@ check_esp_idf_updates() {
     
     cd "$(dirname "$esp_idf_path")"
     
-    # Получение информации о текущей и последней версии
-    local current_commit=$(git rev-parse HEAD)
-    git fetch origin >/dev/null 2>&1
-    local latest_commit=$(git rev-parse origin/master)
+    # Получение информации о текущей версии
+    local current_commit=$(git rev-parse HEAD 2>/dev/null)
+    if [ $? -ne 0 ]; then
+        print_warning "Не удалось определить текущую версию ESP-IDF"
+        cd "$original_dir"
+        return 1
+    fi
     
-    if [ "$current_commit" != "$latest_commit" ]; then
-        print_warning "Доступны обновления ESP-IDF"
-        echo ""
-        read -p "Обновить ESP-IDF до последней версии? (y/n): " -n 1 -r
-        echo ""
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            print_info "Обновление ESP-IDF..."
-            
-            # Сохранение изменений если есть
-            git stash >/dev/null 2>&1
-            
-            # Обновление
-            if git pull origin master && git submodule update --init --recursive; then
-                print_success "ESP-IDF обновлен успешно"
+    # Попытка получения обновлений с таймаутом
+    print_info "Проверка удаленного репозитория..."
+    if timeout 30 git fetch origin >/dev/null 2>&1; then
+        local latest_commit=$(git rev-parse origin/master 2>/dev/null)
+        
+        if [ -z "$latest_commit" ]; then
+            print_warning "Не удалось получить информацию об обновлениях"
+            print_info "Возможно, проблемы с сетью. Продолжаем с текущей версией."
+            cd "$original_dir"
+            return 0
+        fi
+        
+        if [ "$current_commit" != "$latest_commit" ]; then
+            print_warning "Доступны обновления ESP-IDF"
+            echo ""
+            read -p "Обновить ESP-IDF до последней версии? (y/n): " -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                print_info "Обновление ESP-IDF..."
                 
-                # Переустановка зависимостей
-                print_info "Обновление зависимостей..."
-                ./install.sh esp32
+                # Сохранение изменений если есть
+                git stash >/dev/null 2>&1
                 
-                cd "$original_dir"
-                return 0
+                # Обновление с таймаутом
+                if timeout 300 git pull origin master && timeout 300 git submodule update --init --recursive; then
+                    print_success "ESP-IDF обновлен успешно"
+                    
+                    # Переустановка зависимостей
+                    print_info "Обновление зависимостей..."
+                    if timeout 300 ./install.sh esp32; then
+                        print_success "Зависимости обновлены"
+                    else
+                        print_warning "Ошибка обновления зависимостей, но ESP-IDF обновлен"
+                    fi
+                    
+                    cd "$original_dir"
+                    return 0
+                else
+                    print_error "Ошибка обновления ESP-IDF"
+                    cd "$original_dir"
+                    return 1
+                fi
             else
-                print_error "Ошибка обновления ESP-IDF"
-                cd "$original_dir"
-                return 1
+                print_info "Обновление пропущено"
             fi
         else
-            print_info "Обновление пропущено"
+            print_success "ESP-IDF уже актуальной версии"
         fi
     else
-        print_success "ESP-IDF уже актуальной версии"
+        print_warning "Не удалось проверить обновления (таймаут сети)"
+        print_info "Продолжаем с текущей версией ESP-IDF"
     fi
     
     # Возврат в исходную директорию
@@ -220,8 +243,21 @@ check_esp_idf() {
     else
         print_success "Найден ESP-IDF: $ESP_IDF_PATH"
         
-        # Проверка обновлений
-        check_esp_idf_updates "$ESP_IDF_PATH"
+        # Проверка обновлений (с возможностью пропуска)
+        if [ "$SKIP_UPDATES" = true ]; then
+            print_info "Проверка обновлений пропущена (режим быстрой установки)"
+        else
+            echo ""
+            read -p "Проверить обновления ESP-IDF? (y/n/s для пропуска): " -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                check_esp_idf_updates "$ESP_IDF_PATH"
+            elif [[ $REPLY =~ ^[Ss]$ ]]; then
+                print_info "Проверка обновлений пропущена"
+            else
+                print_info "Проверка обновлений пропущена"
+            fi
+        fi
         
         # Активация окружения
         if [ -z "$IDF_PATH" ]; then
@@ -515,10 +551,18 @@ get_baud_rate() {
 main() {
     print_header
     
+    # Проверка параметров командной строки
+    SKIP_UPDATES=false
+    if [ "$1" = "--skip-updates" ] || [ "$1" = "-s" ]; then
+        SKIP_UPDATES=true
+        print_info "Режим быстрой установки (пропуск проверки обновлений)"
+    fi
+    
     # Проверка, что мы в правильной директории
     if [ ! -f "main/main.c" ]; then
         print_error "Запустите скрипт из корневой папки проекта!"
         print_info "cd bluetooth2brushless && ./install.sh"
+        print_info "Для быстрой установки: ./install.sh --skip-updates"
         exit 1
     fi
     
