@@ -113,18 +113,43 @@ build_project() {
 # Прошивка ESP32
 flash_esp32() {
     local port="$1"
-    print_info "Прошивка ESP32 через порт $port..."
+    local baud_rate="${2:-460800}"  # По умолчанию 460800, можно передать другую скорость
     
-    # Попытка прошивки
-    if idf.py -p "$port" flash; then
+    print_info "Прошивка ESP32 через порт $port (скорость: $baud_rate)..."
+    
+    # Попытка прошивки с указанной скоростью
+    if idf.py -p "$port" -b "$baud_rate" flash; then
         print_success "Прошивка завершена успешно!"
         return 0
     else
+        print_warning "Стандартная прошивка не удалась, пробуем альтернативный способ..."
+        
+        # Альтернативный способ прошивки через esptool напрямую
+        if [ -f "build/bootloader/bootloader.bin" ] && [ -f "build/bt13_motor_control.bin" ] && [ -f "build/partition_table/partition-table.bin" ]; then
+            print_info "Прошивка через esptool напрямую..."
+            if python -m esptool --chip esp32 -p "$port" -b "$baud_rate" --before default_reset --after hard_reset write_flash --flash_mode dio --flash_freq 40m --flash_size 2MB 0x1000 build/bootloader/bootloader.bin 0x10000 build/bt13_motor_control.bin 0x8000 build/partition_table/partition-table.bin; then
+                print_success "Альтернативная прошивка завершена успешно!"
+                return 0
+            fi
+        fi
         print_error "Ошибка прошивки!"
         print_warning "Возможные причины:"
         echo "  - ESP32 не подключен к порту $port"
         echo "  - Неправильный порт (попробуйте /dev/ttyUSB1, /dev/ttyACM0)"
         echo "  - ESP32 в режиме загрузки (зажмите BOOT при подключении)"
+        echo "  - Проблемы с кабелем USB"
+        
+        # Предложение попробовать с меньшей скоростью
+        if [ "$baud_rate" = "460800" ]; then
+            echo ""
+            read -p "Попробовать с меньшей скоростью (115200)? (y/n): " -n 1 -r
+            echo ""
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                print_info "Повторная попытка с скоростью 115200..."
+                flash_esp32 "$port" "115200"
+                return $?
+            fi
+        fi
         
         # Предложение повторить прошивку
         echo ""
@@ -132,10 +157,12 @@ flash_esp32() {
         echo ""
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             print_info "Повторная попытка прошивки..."
-            flash_esp32 "$port"
+            flash_esp32 "$port" "$baud_rate"
         else
             print_warning "Прошивка пропущена. Можете прошить вручную:"
-            echo "  idf.py -p $port flash"
+            echo "  idf.py -p $port -b $baud_rate flash"
+            echo "  или с меньшей скоростью:"
+            echo "  idf.py -p $port -b 115200 flash"
             return 1
         fi
     fi
@@ -205,14 +232,32 @@ start_monitor() {
     idf.py -p "$port" monitor
 }
 
+# Выбор скорости прошивки
+choose_baud_rate() {
+    echo ""
+    print_info "Выберите скорость прошивки:"
+    echo "  1) 460800 (быстро, по умолчанию)"
+    echo "  2) 115200 (медленно, для проблемных кабелей)"
+    echo "  3) 921600 (очень быстро, может не работать)"
+    echo ""
+    read -p "Ваш выбор (1-3, Enter для по умолчанию): " -n 1 -r
+    echo ""
+    
+    case $REPLY in
+        2) echo "115200" ;;
+        3) echo "921600" ;;
+        *) echo "460800" ;;
+    esac
+}
+
 # Основная функция
 main() {
     print_header
     
     # Проверка, что мы в правильной директории
     if [ ! -f "main/main.c" ]; then
-        print_error "Запустите скрипт из папки esp-idf-version!"
-        print_info "cd bluetooth2brushless/esp-idf-version && ./install.sh"
+        print_error "Запустите скрипт из корневой папки проекта!"
+        print_info "cd bluetooth2brushless && ./install.sh"
         exit 1
     fi
     
@@ -237,8 +282,11 @@ main() {
         exit 1
     fi
     
+    # Выбор скорости прошивки
+    BAUD_RATE=$(choose_baud_rate)
+    
     # Прошивка
-    if flash_esp32 "$ESP_PORT"; then
+    if flash_esp32 "$ESP_PORT" "$BAUD_RATE"; then
         # Мониторинг
         start_monitor "$ESP_PORT"
     else
