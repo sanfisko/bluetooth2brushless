@@ -166,11 +166,35 @@ check_esp_idf_updates() {
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 print_info "Обновление ESP-IDF..."
                 
-                # Сохранение изменений если есть
-                git stash >/dev/null 2>&1
+                # Проверка состояния репозитория
+                if git status --porcelain | grep -q .; then
+                    print_info "Обнаружены локальные изменения, сохранение..."
+                    git stash push -m "Auto-stash before ESP-IDF update" >/dev/null 2>&1
+                fi
                 
-                # Обновление с таймаутом
-                if timeout 300 git pull origin master && timeout 300 git submodule update --init --recursive; then
+                # Настройка стратегии pull для избежания конфликтов
+                git config pull.rebase false >/dev/null 2>&1
+                
+                # Проверка текущей ветки
+                current_branch=$(git branch --show-current 2>/dev/null || echo "master")
+                if [ "$current_branch" != "master" ]; then
+                    print_info "Переключение на ветку master..."
+                    git checkout master >/dev/null 2>&1
+                fi
+                
+                # Сброс к удаленной версии для чистого обновления
+                print_info "Сброс к последней версии ESP-IDF..."
+                if git reset --hard origin/master >/dev/null 2>&1; then
+                    print_success "Сброс выполнен успешно"
+                else
+                    print_warning "Проблемы со сбросом, пробуем принудительное обновление..."
+                    git fetch --all >/dev/null 2>&1
+                    git reset --hard origin/master >/dev/null 2>&1
+                fi
+                
+                # Обновление субмодулей
+                print_info "Обновление субмодулей ESP-IDF..."
+                if timeout 300 git submodule update --init --recursive --force; then
                     print_success "ESP-IDF обновлен успешно"
                     
                     # Переустановка зависимостей
@@ -185,8 +209,27 @@ check_esp_idf_updates() {
                     return 0
                 else
                     print_error "Ошибка обновления ESP-IDF"
-                    cd "$original_dir"
-                    return 1
+                    echo ""
+                    print_warning "Стандартное обновление не удалось"
+                    read -p "Попробовать полную переустановку ESP-IDF? (y/n): " -n 1 -r
+                    echo ""
+                    if [[ $REPLY =~ ^[Yy]$ ]]; then
+                        print_info "Полная переустановка ESP-IDF..."
+                        cd "$original_dir"
+                        
+                        # Резервное копирование старой версии
+                        if [ -d "$HOME/esp/esp-idf" ]; then
+                            print_info "Создание резервной копии..."
+                            mv "$HOME/esp/esp-idf" "$HOME/esp/esp-idf-backup-$(date +%Y%m%d-%H%M%S)" 2>/dev/null
+                        fi
+                        
+                        # Переустановка
+                        install_esp_idf
+                        return $?
+                    else
+                        cd "$original_dir"
+                        return 1
+                    fi
                 fi
             else
                 print_info "Обновление пропущено"
@@ -562,7 +605,6 @@ main() {
     if [ ! -f "main/main.c" ]; then
         print_error "Запустите скрипт из корневой папки проекта!"
         print_info "cd bluetooth2brushless && ./install.sh"
-        print_info "Для быстрой установки: ./install.sh --skip-updates"
         exit 1
     fi
     
