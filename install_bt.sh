@@ -37,6 +37,13 @@ check_bluetooth_tools() {
     echo -e "${BLUE}🔍 Проверка Bluetooth инструментов...${NC}"
     
     local tools_available=false
+    local os_type=$(uname)
+    
+    # Проверяем blueutil для macOS
+    if [ "$os_type" = "Darwin" ] && command -v blueutil >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ blueutil найден (macOS)${NC}"
+        tools_available=true
+    fi
     
     # Проверяем bluetoothctl
     if command -v bluetoothctl >/dev/null 2>&1; then
@@ -50,17 +57,20 @@ check_bluetooth_tools() {
         tools_available=true
     fi
     
-    # Проверяем rfkill
-    if command -v rfkill >/dev/null 2>&1; then
+    # Проверяем rfkill (только для Linux)
+    if [ "$os_type" != "Darwin" ] && command -v rfkill >/dev/null 2>&1; then
         echo -e "${GREEN}✅ rfkill найден${NC}"
     fi
     
     if [ "$tools_available" = false ]; then
         echo -e "${YELLOW}⚠️  Bluetooth инструменты не найдены${NC}"
         echo -e "${CYAN}Для установки выполните:${NC}"
-        echo -e "${YELLOW}Ubuntu/Debian: sudo apt install bluetooth bluez-tools${NC}"
-        echo -e "${YELLOW}CentOS/RHEL: sudo yum install bluez bluez-tools${NC}"
-        echo -e "${YELLOW}macOS: brew install blueutil${NC}"
+        if [ "$os_type" = "Darwin" ]; then
+            echo -e "${YELLOW}macOS: brew install blueutil${NC}"
+        else
+            echo -e "${YELLOW}Ubuntu/Debian: sudo apt install bluetooth bluez-tools${NC}"
+            echo -e "${YELLOW}CentOS/RHEL: sudo yum install bluez bluez-tools${NC}"
+        fi
         return 1
     fi
     
@@ -102,35 +112,63 @@ scan_bluetooth_devices() {
     local devices_file="/tmp/bt_devices.txt"
     > "$devices_file"
     
+    # Определяем ОС
+    local os_type=$(uname)
+    
+    # macOS - используем blueutil если доступен
+    if [ "$os_type" = "Darwin" ] && command -v blueutil >/dev/null 2>&1; then
+        echo -e "${BLUE}🍎 Используем blueutil для macOS...${NC}"
+        
+        # Включаем Bluetooth если выключен
+        if [ "$(blueutil -p)" = "0" ]; then
+            echo -e "${YELLOW}🔌 Включение Bluetooth...${NC}"
+            blueutil -p 1
+            sleep 3
+        fi
+        
+        # Сканируем устройства
+        blueutil --inquiry 15 2>/dev/null | while read -r line; do
+            if [[ "$line" =~ address:\ ([0-9a-fA-F:]+),\ name:\ \"(.*)\" ]]; then
+                local mac="${BASH_REMATCH[1]}"
+                local name="${BASH_REMATCH[2]}"
+                echo "$mac|$name" >> "$devices_file"
+            fi
+        done
+        
     # Используем bluetoothctl если доступен
-    if command -v bluetoothctl >/dev/null 2>&1; then
-        # Запускаем сканирование
-        echo "scan on" | bluetoothctl >/dev/null 2>&1 &
-        local scan_pid=$!
+    elif command -v bluetoothctl >/dev/null 2>&1; then
+        echo -e "${BLUE}🐧 Используем bluetoothctl...${NC}"
         
-        sleep 15
-        
-        # Останавливаем сканирование
-        echo "scan off" | bluetoothctl >/dev/null 2>&1
-        kill $scan_pid 2>/dev/null || true
-        
-        # Получаем список устройств
-        echo "devices" | bluetoothctl 2>/dev/null | grep "Device" | while read -r line; do
+        # Запускаем сканирование в фоне
+        (
+            echo "scan on"
+            sleep 15
+            echo "scan off"
+            echo "devices"
+            echo "quit"
+        ) | bluetoothctl 2>/dev/null | grep "Device" | while read -r line; do
             local mac=$(echo "$line" | awk '{print $2}')
             local name=$(echo "$line" | cut -d' ' -f3-)
-            echo "$mac|$name" >> "$devices_file"
+            if [ -n "$mac" ] && [ -n "$name" ]; then
+                echo "$mac|$name" >> "$devices_file"
+            fi
         done
         
     # Используем hcitool как резервный вариант
     elif command -v hcitool >/dev/null 2>&1; then
-        echo -e "${YELLOW}Используем hcitool для сканирования...${NC}"
+        echo -e "${YELLOW}🔧 Используем hcitool для сканирования...${NC}"
         timeout 15 hcitool scan 2>/dev/null | grep -E "([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}" | while read -r mac name; do
-            echo "$mac|$name" >> "$devices_file"
+            if [ -n "$mac" ]; then
+                echo "$mac|${name:-Unknown Device}" >> "$devices_file"
+            fi
         done
     else
         echo -e "${RED}❌ Bluetooth инструменты недоступны${NC}"
         return 1
     fi
+    
+    # Ждем завершения записи в файл
+    sleep 2
     
     # Проверяем результаты
     if [ ! -s "$devices_file" ]; then
@@ -139,10 +177,38 @@ scan_bluetooth_devices() {
         echo -e "${CYAN}1. BT13 включен (синий LED мигает)${NC}"
         echo -e "${CYAN}2. BT13 находится рядом (< 10 метров)${NC}"
         echo -e "${CYAN}3. BT13 не подключен к другому устройству${NC}"
+        echo ""
+        echo -e "${BLUE}💡 Попробуйте:${NC}"
+        echo -e "${CYAN}• Перезапустить BT13 (выключить/включить)${NC}"
+        echo -e "${CYAN}• Отключить BT13 от других устройств${NC}"
+        echo -e "${CYAN}• Запустить скрипт с sudo (если требуется)${NC}"
         return 1
     fi
     
     return 0
+}
+
+# Функция для ручного ввода MAC адреса
+manual_mac_input() {
+    echo -e "${BLUE}✏️  Ручной ввод MAC адреса${NC}"
+    echo -e "${CYAN}Введите MAC адрес вашего BT13 пульта в формате XX:XX:XX:XX:XX:XX${NC}"
+    echo -e "${YELLOW}Пример: 8B:EB:75:4E:65:97${NC}"
+    echo ""
+    
+    while true; do
+        read -p "MAC адрес: " manual_mac
+        
+        # Проверяем формат MAC адреса
+        if [[ "$manual_mac" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]]; then
+            echo -e "${GREEN}✅ MAC адрес корректен: $manual_mac${NC}"
+            echo "$manual_mac" > /tmp/selected_mac.txt
+            return 0
+        else
+            echo -e "${RED}❌ Неверный формат MAC адреса${NC}"
+            echo -e "${CYAN}Используйте формат: XX:XX:XX:XX:XX:XX (например: 8B:EB:75:4E:65:97)${NC}"
+            echo ""
+        fi
+    done
 }
 
 # Функция для выбора устройства
@@ -162,16 +228,19 @@ select_bluetooth_device() {
     done < "$devices_file"
     
     echo ""
+    echo -e "${CYAN}$((${#devices[@]}+1))) Ввести MAC адрес вручную${NC}"
     echo -e "${CYAN}0) Пропустить и использовать MAC по умолчанию${NC}"
     echo ""
     
     while true; do
-        read -p "Выберите устройство (0-$((${#devices[@]})): " choice
+        read -p "Выберите устройство (0-$((${#devices[@]}+1))): " choice
         
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -le "${#devices[@]}" ]; then
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -le "$((${#devices[@]}+1))" ]; then
             if [ "$choice" -eq 0 ]; then
                 echo -e "${YELLOW}⚠️  Используется MAC по умолчанию${NC}"
                 return 1
+            elif [ "$choice" -eq "$((${#devices[@]}+1))" ]; then
+                return $(manual_mac_input && echo 0 || echo 1)
             else
                 local selected_device="${devices[$((choice-1))]}"
                 local selected_mac=$(echo "$selected_device" | cut -d'|' -f1)
@@ -182,7 +251,7 @@ select_bluetooth_device() {
                 return 0
             fi
         else
-            echo -e "${RED}❌ Неверный выбор. Введите число от 0 до ${#devices[@]}${NC}"
+            echo -e "${RED}❌ Неверный выбор. Введите число от 0 до $((${#devices[@]}+1))${NC}"
         fi
     done
 }
@@ -226,23 +295,65 @@ bluetooth_setup() {
     
     # Проверяем инструменты
     if ! check_bluetooth_tools; then
-        echo -e "${YELLOW}⚠️  Пропускаем Bluetooth сканирование${NC}"
+        echo -e "${YELLOW}⚠️  Bluetooth инструменты недоступны${NC}"
+        echo ""
+        echo -e "${BLUE}💡 Хотите ввести MAC адрес вручную?${NC}"
+        read -p "Ввести MAC вручную? (y/N): " -n 1 -r
+        echo
+        
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            if manual_mac_input; then
+                local selected_mac=$(cat /tmp/selected_mac.txt)
+                if update_mac_in_code "$selected_mac"; then
+                    echo -e "${GREEN}🎉 MAC адрес настроен вручную!${NC}"
+                    return 0
+                fi
+            fi
+        fi
         return 1
     fi
     
     # Включаем Bluetooth
     if ! enable_bluetooth; then
         echo -e "${YELLOW}⚠️  Не удалось включить Bluetooth${NC}"
+        echo ""
+        echo -e "${BLUE}💡 Хотите ввести MAC адрес вручную?${NC}"
+        read -p "Ввести MAC вручную? (y/N): " -n 1 -r
+        echo
+        
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            if manual_mac_input; then
+                local selected_mac=$(cat /tmp/selected_mac.txt)
+                if update_mac_in_code "$selected_mac"; then
+                    echo -e "${GREEN}🎉 MAC адрес настроен вручную!${NC}"
+                    return 0
+                fi
+            fi
+        fi
         return 1
     fi
     
     # Сканируем устройства
     if ! scan_bluetooth_devices; then
         echo -e "${YELLOW}⚠️  Сканирование не дало результатов${NC}"
+        echo ""
+        echo -e "${BLUE}💡 Хотите ввести MAC адрес вручную?${NC}"
+        read -p "Ввести MAC вручную? (y/N): " -n 1 -r
+        echo
+        
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            if manual_mac_input; then
+                local selected_mac=$(cat /tmp/selected_mac.txt)
+                if update_mac_in_code "$selected_mac"; then
+                    echo -e "${GREEN}🎉 MAC адрес настроен вручную!${NC}"
+                    return 0
+                fi
+            fi
+        fi
         return 1
     fi
     
-    # Выбираем устройство
+    # Выбираем устройство (включая ручной ввод)
     if select_bluetooth_device; then
         local selected_mac=$(cat /tmp/selected_mac.txt)
         if update_mac_in_code "$selected_mac"; then
