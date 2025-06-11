@@ -1,4 +1,4 @@
-# 🚗 ESP32 Remote Motor Control
+# 🚗 ESP32 Bluetooth Motor Control
 
 ESP32 + Bluetooth HID пульт = управление бесщеточным двигателем
 
@@ -46,8 +46,8 @@ ESP32 + Bluetooth HID пульт = управление бесщеточным �
 ### Автоматическая установка (рекомендуется)
 ```bash
 # Клонирование репозитория
-git clone https://github.com/sanfisko/esp32-remote-motor-control.git
-cd esp32-remote-motor-control
+git clone https://github.com/sanfisko/esp32-bluetooth-motor-control.git
+cd esp32-bluetooth-motor-control
 
 # Запуск автоматической установки
 ./install.sh
@@ -432,7 +432,7 @@ idf.py --version
 ## 📁 Структура проекта
 
 ```
-esp32-remote-motor-control/
+esp32-bluetooth-motor-control/
 ├── README.md              # Этот файл
 ├── LICENSE                # Лицензия MIT
 ├── CMakeLists.txt         # Конфигурация проекта
