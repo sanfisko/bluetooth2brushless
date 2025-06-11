@@ -335,6 +335,115 @@ detect_port() {
     return 1
 }
 
+# Анализ логов для определения успешного подключения
+analyze_monitor_logs() {
+    local log_file="$1"
+    
+    print_info "Анализ логов подключения..."
+    
+    # Проверяем наличие признаков успешного подключения к BT13
+    local connection_patterns=(
+        "BT13.*connected"
+        "HID.*connected" 
+        "Connection established"
+        "Device connected.*BT13"
+        "GAP_BLE_CONN_EST_EVT"
+        "ESP_HIDD_CONNECT_EVT"
+    )
+    
+    for pattern in "${connection_patterns[@]}"; do
+        if grep -q "$pattern" "$log_file" 2>/dev/null; then
+            print_success "Найден паттерн подключения: $pattern"
+            return 0
+        fi
+    done
+    
+    # Проверяем наличие HID команд (признак работающего подключения)
+    local hid_patterns=(
+        "HID Usage: 0x00B[0-9A-F]"
+        "Command:.*Short"
+        "Command:.*Long" 
+        "Speed level.*[0-9]"
+        "PWM:.*[0-9]"
+        "Direction:.*FORWARD\|REVERSE\|STOP"
+        "State:.*ON\|OFF"
+    )
+    
+    local hid_found=0
+    for pattern in "${hid_patterns[@]}"; do
+        if grep -q "$pattern" "$log_file" 2>/dev/null; then
+            print_success "Найдена HID активность: $pattern"
+            hid_found=1
+        fi
+    done
+    
+    if [ $hid_found -eq 1 ]; then
+        return 0
+    fi
+    
+    # Проверяем наличие MAC адреса BT13 в логах
+    if grep -q "8B:EB:75:4E:65:97\|8b:eb:75:4e:65:97" "$log_file" 2>/dev/null; then
+        print_success "Найден MAC адрес BT13 в логах"
+        return 0
+    fi
+    
+    print_warning "Признаки подключения к BT13 не найдены"
+    return 1  # Подключение не обнаружено
+}
+
+# Функция удаления ESP-IDF
+cleanup_esp_idf() {
+    print_info "Анализ использования диска..."
+    
+    # Проверяем размер ESP-IDF
+    if [ -d "$HOME/esp/esp-idf" ]; then
+        local esp_size=$(du -sh "$HOME/esp/esp-idf" 2>/dev/null | cut -f1)
+        print_info "ESP-IDF занимает: $esp_size"
+        echo ""
+        print_warning "ESP32 успешно прошит и работает с BT13!"
+        print_info "ESP-IDF больше не нужен для работы устройства."
+        print_info "Вы можете удалить его для освобождения места (~2-3 ГБ)."
+        echo ""
+        print_warning "⚠️  ВНИМАНИЕ: После удаления ESP-IDF вы не сможете:"
+        echo "  - Перепрошивать ESP32 без повторной установки ESP-IDF"
+        echo "  - Изменять код проекта"
+        echo "  - Обновлять прошивку"
+        echo ""
+        print_info "Варианты действий:"
+        echo "  1) Удалить ESP-IDF (освободить $esp_size)"
+        echo "  2) Переместить в архив (~/.esp-idf-backup)"
+        echo "  3) Оставить как есть"
+        echo ""
+        read -p "Ваш выбор (1-3): " -n 1 -r
+        echo ""
+        
+        case $REPLY in
+            1)
+                print_info "Удаление ESP-IDF..."
+                if rm -rf "$HOME/esp/esp-idf"; then
+                    print_success "ESP-IDF удален! Освобождено: $esp_size"
+                    print_info "Для повторной прошивки запустите ./install.sh - ESP-IDF установится автоматически"
+                else
+                    print_error "Ошибка удаления ESP-IDF"
+                fi
+                ;;
+            2)
+                print_info "Перемещение ESP-IDF в архив..."
+                mkdir -p "$HOME/.esp-idf-backup"
+                if mv "$HOME/esp/esp-idf" "$HOME/.esp-idf-backup/esp-idf-$(date +%Y%m%d)"; then
+                    print_success "ESP-IDF перемещен в архив: ~/.esp-idf-backup/"
+                    print_info "Для восстановления: mv ~/.esp-idf-backup/esp-idf-* ~/esp/esp-idf"
+                else
+                    print_error "Ошибка перемещения ESP-IDF"
+                fi
+                ;;
+            *)
+                print_info "ESP-IDF оставлен без изменений"
+                ;;
+        esac
+    fi
+}
+
 # Мониторинг
 start_monitor() {
     local port="$1"
@@ -352,13 +461,49 @@ start_monitor() {
     echo "  Средняя     → полная остановка"
     echo ""
     print_info "Запуск мониторинга (Ctrl+] для выхода)..."
+    print_info "Мониторинг будет анализировать подключение к BT13..."
     echo ""
     
     # Небольшая задержка перед мониторингом
     sleep 2
     
-    # Запуск мониторинга
-    idf.py -p "$port" monitor
+    # Создание временного файла для логов
+    local log_file="/tmp/esp32_monitor_$$.log"
+    
+    # Запуск мониторинга с сохранением логов
+    print_info "Для выхода из мониторинга нажмите Ctrl+]"
+    echo ""
+    idf.py -p "$port" monitor | tee "$log_file"
+    
+    echo ""
+    print_info "Мониторинг завершен. Анализ результатов..."
+    
+    # Анализ логов
+    if analyze_monitor_logs "$log_file"; then
+        print_success "Обнаружено успешное подключение к BT13!"
+        cleanup_esp_idf
+    else
+        print_warning "Подключение к BT13 не обнаружено в логах"
+        print_info "Возможные причины:"
+        echo "  - BT13 не включен или разряжен"
+        echo "  - Неправильный MAC адрес в коде"
+        echo "  - Слишком короткое время мониторинга"
+        echo ""
+        
+        # Предложение принудительного удаления
+        echo ""
+        read -p "Удалить ESP-IDF принудительно? (y/n): " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Принудительное удаление ESP-IDF..."
+            cleanup_esp_idf
+        else
+            print_info "ESP-IDF оставлен для повторных попыток"
+        fi
+    fi
+    
+    # Очистка временного файла
+    rm -f "$log_file"
 }
 
 # Скорость прошивки (фиксированная)
