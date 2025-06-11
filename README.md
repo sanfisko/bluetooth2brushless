@@ -1,4 +1,4 @@
-# 🤖 ESP32 Bluetooth Motor Control
+# 🏄 ESP32 Bluetooth Motor Control
 
 ESP32 + Bluetooth HID пульт = управление бесщеточным двигателем
 
