@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Универсальный скрипт установки и управления ESP-IDF для проекта esp32-remote-motor-control
+# Универсальный скрипт установки и управления ESP-IDF для проекта esp32-bluetooth-motor-control
 # Автор: sanfisko
-# Репозиторий: https://github.com/sanfisko/esp32-remote-motor-control
+# Репозиторий: https://github.com/sanfisko/esp32-bluetooth-motor-control
 
 set -e
 
@@ -24,8 +24,8 @@ FLASH_SPEED="115200"
 # Функция для вывода заголовка
 print_header() {
     echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║              ESP32 Remote Motor Control Setup               ║${NC}"
-    echo -e "${BLUE}║        github.com/sanfisko/esp32-remote-motor-control       ║${NC}"
+    echo -e "${BLUE}║             ESP32 Bluetooth Motor Control Setup             ║${NC}"
+    echo -e "${BLUE}║       github.com/sanfisko/esp32-bluetooth-motor-control     ║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
