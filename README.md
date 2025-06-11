@@ -7,7 +7,7 @@ ESP32 + пульт BT13 = управление бесщеточным двига
 ### Автоматическая установка (рекомендуется)
 ```bash
 # Клонирование репозитория
-git clone https://github.com/dmoefasc/bluetooth2brushless.git
+git clone https://github.com/sanfisko/bluetooth2brushless.git
 cd bluetooth2brushless
 
 # Запуск автоматической установки
