@@ -26,7 +26,7 @@
 #include "driver/ledc.h"
 #include "esp_timer.h"
 
-static const char *TAG = "BT13_MOTOR_CONTROL";
+static const char *TAG = "REMOTE_MOTOR_CONTROL";
 
 // Пины для управления двигателем
 #define MOTOR_SPEED_PIN     GPIO_NUM_25
@@ -102,7 +102,7 @@ void app_main(void)
 {
     esp_err_t ret;
 
-    ESP_LOGI(TAG, "=== ESP32 HID Host Motor Control ===");
+    ESP_LOGI(TAG, "=== ESP32 Remote Motor Control ===");
     ESP_LOGI(TAG, "System initialization...");
 
     // Инициализация NVS

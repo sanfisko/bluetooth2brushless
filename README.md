@@ -1,14 +1,14 @@
-# 🚗 bluetooth2brushless
+# 🚗 ESP32 Remote Motor Control
 
-ESP32 + пульт BT13 = управление бесщеточным двигателем
+ESP32 + беспроводной пульт = управление бесщеточным двигателем
 
 ## 🚀 Быстрый старт
 
 ### Автоматическая установка (рекомендуется)
 ```bash
 # Клонирование репозитория
-git clone https://github.com/sanfisko/bluetooth2brushless.git
-cd bluetooth2brushless
+git clone https://github.com/sanfisko/esp32-remote-motor-control.git
+cd esp32-remote-motor-control
 
 # Запуск автоматической установки
 ./install.sh
@@ -368,7 +368,7 @@ idf.py --version
 ## 📁 Структура проекта
 
 ```
-bluetooth2brushless/
+esp32-remote-motor-control/
 ├── README.md              # Этот файл
 ├── LICENSE                # Лицензия MIT
 ├── CMakeLists.txt         # Конфигурация проекта
