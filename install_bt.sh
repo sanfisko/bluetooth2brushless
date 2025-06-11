@@ -32,6 +32,42 @@ print_header() {
     echo ""
 }
 
+# Функция для автоматической установки Bluetooth пакетов
+install_bluetooth_packages() {
+    local os_type=$(uname)
+    
+    if [ "$os_type" = "Darwin" ]; then
+        echo -e "${BLUE}🍎 Установка blueutil для macOS...${NC}"
+        if command -v brew >/dev/null 2>&1; then
+            brew install blueutil
+        else
+            echo -e "${RED}❌ Homebrew не найден. Установите brew сначала${NC}"
+            return 1
+        fi
+    else
+        echo -e "${BLUE}🐧 Установка Bluetooth пакетов для Linux...${NC}"
+        
+        # Определяем дистрибутив
+        if command -v apt >/dev/null 2>&1; then
+            echo -e "${CYAN}Обновление списка пакетов...${NC}"
+            sudo apt update
+            echo -e "${CYAN}Установка bluetooth, bluez, bluez-tools...${NC}"
+            sudo apt install -y bluetooth bluez bluez-tools
+        elif command -v yum >/dev/null 2>&1; then
+            echo -e "${CYAN}Установка bluez, bluez-tools...${NC}"
+            sudo yum install -y bluez bluez-tools
+        elif command -v dnf >/dev/null 2>&1; then
+            echo -e "${CYAN}Установка bluez, bluez-tools...${NC}"
+            sudo dnf install -y bluez bluez-tools
+        else
+            echo -e "${RED}❌ Неизвестный пакетный менеджер${NC}"
+            return 1
+        fi
+    fi
+    
+    return 0
+}
+
 # Функция для проверки Bluetooth окружения
 check_bluetooth_tools() {
     echo -e "${BLUE}🔍 Проверка Bluetooth инструментов...${NC}"
@@ -64,14 +100,35 @@ check_bluetooth_tools() {
     
     if [ "$tools_available" = false ]; then
         echo -e "${YELLOW}⚠️  Bluetooth инструменты не найдены${NC}"
-        echo -e "${CYAN}Для установки выполните:${NC}"
-        if [ "$os_type" = "Darwin" ]; then
-            echo -e "${YELLOW}macOS: brew install blueutil${NC}"
+        echo -e "${BLUE}💡 Хотите установить их автоматически?${NC}"
+        read -p "Установить Bluetooth пакеты? (Y/n): " -n 1 -r
+        echo
+        
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            if install_bluetooth_packages; then
+                echo -e "${GREEN}✅ Bluetooth пакеты установлены${NC}"
+                return 0
+            else
+                echo -e "${RED}❌ Ошибка установки пакетов${NC}"
+                echo -e "${CYAN}Установите вручную:${NC}"
+                if [ "$os_type" = "Darwin" ]; then
+                    echo -e "${YELLOW}macOS: brew install blueutil${NC}"
+                else
+                    echo -e "${YELLOW}Ubuntu/Debian: sudo apt install bluetooth bluez-tools${NC}"
+                    echo -e "${YELLOW}CentOS/RHEL: sudo yum install bluez bluez-tools${NC}"
+                fi
+                return 1
+            fi
         else
-            echo -e "${YELLOW}Ubuntu/Debian: sudo apt install bluetooth bluez-tools${NC}"
-            echo -e "${YELLOW}CentOS/RHEL: sudo yum install bluez bluez-tools${NC}"
+            echo -e "${CYAN}Установите вручную:${NC}"
+            if [ "$os_type" = "Darwin" ]; then
+                echo -e "${YELLOW}macOS: brew install blueutil${NC}"
+            else
+                echo -e "${YELLOW}Ubuntu/Debian: sudo apt install bluetooth bluez-tools${NC}"
+                echo -e "${YELLOW}CentOS/RHEL: sudo yum install bluez bluez-tools${NC}"
+            fi
+            return 1
         fi
-        return 1
     fi
     
     return 0
@@ -81,25 +138,70 @@ check_bluetooth_tools() {
 enable_bluetooth() {
     echo -e "${BLUE}📡 Проверка состояния Bluetooth...${NC}"
     
-    # Проверяем rfkill
-    if command -v rfkill >/dev/null 2>&1; then
-        if rfkill list bluetooth | grep -q "Soft blocked: yes"; then
-            echo -e "${YELLOW}🔓 Включение Bluetooth...${NC}"
-            sudo rfkill unblock bluetooth
-            sleep 2
+    local os_type=$(uname)
+    
+    # Для Linux систем
+    if [ "$os_type" != "Darwin" ]; then
+        # Проверяем и запускаем bluetooth сервис
+        if command -v systemctl >/dev/null 2>&1; then
+            echo -e "${BLUE}🔧 Проверка bluetooth сервиса...${NC}"
+            if ! systemctl is-active --quiet bluetooth; then
+                echo -e "${YELLOW}🔌 Запуск bluetooth сервиса...${NC}"
+                sudo systemctl start bluetooth
+                sleep 2
+            fi
+            
+            if ! systemctl is-enabled --quiet bluetooth; then
+                echo -e "${YELLOW}⚙️ Включение автозапуска bluetooth...${NC}"
+                sudo systemctl enable bluetooth
+            fi
+        fi
+        
+        # Проверяем rfkill
+        if command -v rfkill >/dev/null 2>&1; then
+            echo -e "${BLUE}🔍 Проверка rfkill блокировок...${NC}"
+            if rfkill list bluetooth | grep -q "Soft blocked: yes"; then
+                echo -e "${YELLOW}🔓 Снятие программной блокировки Bluetooth...${NC}"
+                sudo rfkill unblock bluetooth
+                sleep 2
+            fi
+            if rfkill list bluetooth | grep -q "Hard blocked: yes"; then
+                echo -e "${RED}❌ Bluetooth заблокирован аппаратно (проверьте переключатель)${NC}"
+                return 1
+            fi
         fi
     fi
     
     # Проверяем bluetoothctl
     if command -v bluetoothctl >/dev/null 2>&1; then
-        echo -e "${BLUE}🔌 Включение Bluetooth адаптера...${NC}"
-        echo "power on" | bluetoothctl >/dev/null 2>&1
+        echo -e "${BLUE}🔌 Настройка Bluetooth адаптера...${NC}"
+        
+        # Включаем адаптер и настраиваем
+        (
+            echo "power on"
+            sleep 2
+            echo "agent on"
+            echo "default-agent"
+            echo "discoverable on"
+            echo "pairable on"
+            sleep 1
+            echo "quit"
+        ) | bluetoothctl >/dev/null 2>&1
+        
         sleep 2
-        echo "agent on" | bluetoothctl >/dev/null 2>&1
-        echo "default-agent" | bluetoothctl >/dev/null 2>&1
+        
+        # Проверяем статус
+        local bt_status=$(echo "show" | bluetoothctl 2>/dev/null | grep "Powered:" | awk '{print $2}')
+        if [ "$bt_status" = "yes" ]; then
+            echo -e "${GREEN}✅ Bluetooth адаптер включен${NC}"
+        else
+            echo -e "${YELLOW}⚠️ Не удалось включить Bluetooth адаптер${NC}"
+            return 1
+        fi
     fi
     
     echo -e "${GREEN}✅ Bluetooth готов к сканированию${NC}"
+    return 0
 }
 
 # Функция для сканирования Bluetooth устройств
@@ -139,18 +241,50 @@ scan_bluetooth_devices() {
     elif command -v bluetoothctl >/dev/null 2>&1; then
         echo -e "${BLUE}🐧 Используем bluetoothctl...${NC}"
         
-        # Запускаем сканирование в фоне
-        (
-            echo "scan on"
-            sleep 15
-            echo "scan off"
-            echo "devices"
-            echo "quit"
-        ) | bluetoothctl 2>/dev/null | grep "Device" | while read -r line; do
+        # Очищаем кэш устройств
+        echo -e "${CYAN}Очистка кэша устройств...${NC}"
+        echo "remove *" | bluetoothctl >/dev/null 2>&1
+        sleep 1
+        
+        # Запускаем сканирование
+        echo -e "${CYAN}Запуск сканирования на 15 секунд...${NC}"
+        
+        # Создаем временный файл для bluetoothctl
+        local bt_script="/tmp/bt_scan.sh"
+        cat > "$bt_script" << 'EOF'
+#!/bin/bash
+{
+    echo "scan on"
+    sleep 15
+    echo "scan off"
+    sleep 1
+    echo "devices"
+    echo "quit"
+} | bluetoothctl
+EOF
+        chmod +x "$bt_script"
+        
+        # Запускаем сканирование и парсим результат
+        "$bt_script" 2>/dev/null | grep "Device" | while read -r line; do
             local mac=$(echo "$line" | awk '{print $2}')
             local name=$(echo "$line" | cut -d' ' -f3-)
             if [ -n "$mac" ] && [ -n "$name" ]; then
                 echo "$mac|$name" >> "$devices_file"
+            fi
+        done
+        
+        # Удаляем временный файл
+        rm -f "$bt_script"
+        
+        # Дополнительно пробуем получить устройства из кэша
+        echo "devices" | bluetoothctl 2>/dev/null | grep "Device" | while read -r line; do
+            local mac=$(echo "$line" | awk '{print $2}')
+            local name=$(echo "$line" | cut -d' ' -f3-)
+            if [ -n "$mac" ] && [ -n "$name" ]; then
+                # Проверяем, что устройство еще не добавлено
+                if ! grep -q "$mac" "$devices_file" 2>/dev/null; then
+                    echo "$mac|$name" >> "$devices_file"
+                fi
             fi
         done
         
@@ -173,15 +307,36 @@ scan_bluetooth_devices() {
     # Проверяем результаты
     if [ ! -s "$devices_file" ]; then
         echo -e "${YELLOW}⚠️  Устройства не найдены${NC}"
+        echo ""
+        echo -e "${BLUE}🔍 Диагностика Bluetooth:${NC}"
+        
+        # Показываем статус Bluetooth
+        if command -v bluetoothctl >/dev/null 2>&1; then
+            local bt_status=$(echo "show" | bluetoothctl 2>/dev/null | grep "Powered:" | awk '{print $2}')
+            echo -e "${CYAN}• Bluetooth адаптер: ${bt_status:-неизвестно}${NC}"
+            
+            local scanning=$(echo "show" | bluetoothctl 2>/dev/null | grep "Discovering:" | awk '{print $2}')
+            echo -e "${CYAN}• Сканирование: ${scanning:-неизвестно}${NC}"
+        fi
+        
+        # Показываем rfkill статус
+        if command -v rfkill >/dev/null 2>&1; then
+            echo -e "${CYAN}• rfkill статус:${NC}"
+            rfkill list bluetooth | head -3
+        fi
+        
+        echo ""
         echo -e "${CYAN}Убедитесь что:${NC}"
-        echo -e "${CYAN}1. BT13 включен (синий LED мигает)${NC}"
-        echo -e "${CYAN}2. BT13 находится рядом (< 10 метров)${NC}"
+        echo -e "${CYAN}1. BT13 мигает красным+синим (режим поиска)${NC}"
+        echo -e "${CYAN}2. BT13 находится рядом (< 5 метров)${NC}"
         echo -e "${CYAN}3. BT13 не подключен к другому устройству${NC}"
+        echo -e "${CYAN}4. Bluetooth включен в системе${NC}"
         echo ""
         echo -e "${BLUE}💡 Попробуйте:${NC}"
         echo -e "${CYAN}• Перезапустить BT13 (выключить/включить)${NC}"
-        echo -e "${CYAN}• Отключить BT13 от других устройств${NC}"
-        echo -e "${CYAN}• Запустить скрипт с sudo (если требуется)${NC}"
+        echo -e "${CYAN}• Отключить BT13 от телефона/компьютера${NC}"
+        echo -e "${CYAN}• Запустить: sudo systemctl restart bluetooth${NC}"
+        echo -e "${CYAN}• Запустить скрипт с sudo${NC}"
         return 1
     fi
     
