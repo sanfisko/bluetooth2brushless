@@ -139,17 +139,7 @@ flash_esp32() {
         echo "  - ESP32 в режиме загрузки (зажмите BOOT при подключении)"
         echo "  - Проблемы с кабелем USB"
         
-        # Предложение попробовать с меньшей скоростью
-        if [ "$baud_rate" = "460800" ]; then
-            echo ""
-            read -p "Попробовать с меньшей скоростью (115200)? (y/n): " -n 1 -r
-            echo ""
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                print_info "Повторная попытка с скоростью 115200..."
-                flash_esp32 "$port" "115200"
-                return $?
-            fi
-        fi
+
         
         # Предложение повторить прошивку
         echo ""
@@ -161,8 +151,6 @@ flash_esp32() {
         else
             print_warning "Прошивка пропущена. Можете прошить вручную:"
             echo "  idf.py -p $port -b $baud_rate flash"
-            echo "  или с меньшей скоростью:"
-            echo "  idf.py -p $port -b 115200 flash"
             return 1
         fi
     fi
@@ -217,22 +205,9 @@ start_monitor() {
     idf.py -p "$port" monitor
 }
 
-# Выбор скорости прошивки
-choose_baud_rate() {
-    echo "" >&2
-    print_info "Выберите скорость прошивки:"
-    echo "  1) 460800 (быстро, по умолчанию)" >&2
-    echo "  2) 115200 (медленно, для проблемных кабелей)" >&2
-    echo "  3) 921600 (очень быстро, может не работать)" >&2
-    echo "" >&2
-    read -p "Ваш выбор (1-3, Enter для по умолчанию): " -n 1 -r >&2
-    echo "" >&2
-    
-    case $REPLY in
-        2) echo "115200" ;;
-        3) echo "921600" ;;
-        *) echo "460800" ;;
-    esac
+# Скорость прошивки (фиксированная)
+get_baud_rate() {
+    echo "115200"
 }
 
 # Основная функция
@@ -278,8 +253,9 @@ main() {
         print_success "Найден порт: $ESP_PORT"
     fi
     
-    # Выбор скорости прошивки
-    BAUD_RATE=$(choose_baud_rate)
+    # Установка скорости прошивки
+    BAUD_RATE=$(get_baud_rate)
+    print_info "Скорость прошивки: $BAUD_RATE (надежная для всех кабелей)"
     
     # Прошивка
     if flash_esp32 "$ESP_PORT" "$BAUD_RATE"; then
