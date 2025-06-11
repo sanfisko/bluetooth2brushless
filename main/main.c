@@ -26,7 +26,7 @@
 #include "driver/ledc.h"
 #include "esp_timer.h"
 
-static const char *TAG = "REMOTE_MOTOR_CONTROL";
+static const char *TAG = "BT_MOTOR_CONTROL";
 
 // Пины для управления двигателем
 #define MOTOR_SPEED_PIN     GPIO_NUM_25
