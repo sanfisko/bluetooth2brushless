@@ -264,29 +264,37 @@ scan_bluetooth_devices() {
 EOF
         chmod +x "$bt_script"
         
-        # Запускаем сканирование и парсим результат
-        "$bt_script" 2>/dev/null | grep "Device" | while read -r line; do
-            local mac=$(echo "$line" | awk '{print $2}')
-            local name=$(echo "$line" | cut -d' ' -f3-)
-            if [ -n "$mac" ] && [ -n "$name" ]; then
-                echo "$mac|$name" >> "$devices_file"
-            fi
-        done
+        # Запускаем сканирование и сохраняем весь вывод
+        local bt_output="/tmp/bt_output.txt"
+        "$bt_script" > "$bt_output" 2>/dev/null
         
         # Удаляем временный файл
         rm -f "$bt_script"
         
-        # Дополнительно пробуем получить устройства из кэша
-        echo "devices" | bluetoothctl 2>/dev/null | grep "Device" | while read -r line; do
-            local mac=$(echo "$line" | awk '{print $2}')
-            local name=$(echo "$line" | cut -d' ' -f3-)
-            if [ -n "$mac" ] && [ -n "$name" ]; then
-                # Проверяем, что устройство еще не добавлено
-                if ! grep -q "$mac" "$devices_file" 2>/dev/null; then
+        # Парсим результат более аккуратно
+        if [ -f "$bt_output" ]; then
+            # Ищем строки с устройствами, исключая служебную информацию
+            grep "^Device" "$bt_output" | while read -r line; do
+                # Извлекаем MAC адрес (второе слово)
+                local mac=$(echo "$line" | awk '{print $2}')
+                
+                # Проверяем, что это действительно MAC адрес
+                if [[ "$mac" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]]; then
+                    # Извлекаем имя устройства (все после MAC адреса, убираем служебные теги)
+                    local name=$(echo "$line" | sed "s/^Device $mac //" | sed 's/\[[^]]*\]//g' | sed 's/^ *//' | sed 's/ *$//')
+                    
+                    # Если имя пустое, используем "Unknown Device"
+                    if [ -z "$name" ]; then
+                        name="Unknown Device"
+                    fi
+                    
+                    # Добавляем устройство в список
                     echo "$mac|$name" >> "$devices_file"
                 fi
-            fi
-        done
+            done
+            
+            rm -f "$bt_output"
+        fi
         
     # Используем hcitool как резервный вариант
     elif command -v hcitool >/dev/null 2>&1; then
@@ -377,9 +385,12 @@ select_bluetooth_device() {
     local i=1
     
     while IFS='|' read -r mac name; do
-        devices+=("$mac|$name")
-        echo -e "${CYAN}$i) $name ${YELLOW}($mac)${NC}"
-        ((i++))
+        # Проверяем, что MAC адрес имеет правильный формат
+        if [[ "$mac" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] && [ -n "$name" ]; then
+            devices+=("$mac|$name")
+            echo -e "${CYAN}$i) $name ${YELLOW}($mac)${NC}"
+            ((i++))
+        fi
     done < "$devices_file"
     
     echo ""
@@ -401,9 +412,15 @@ select_bluetooth_device() {
                 local selected_mac=$(echo "$selected_device" | cut -d'|' -f1)
                 local selected_name=$(echo "$selected_device" | cut -d'|' -f2)
                 
-                echo -e "${GREEN}✅ Выбрано: $selected_name ($selected_mac)${NC}"
-                echo "$selected_mac" > /tmp/selected_mac.txt
-                return 0
+                # Дополнительная проверка MAC адреса
+                if [[ "$selected_mac" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]]; then
+                    echo -e "${GREEN}✅ Выбрано: $selected_name ($selected_mac)${NC}"
+                    echo "$selected_mac" > /tmp/selected_mac.txt
+                    return 0
+                else
+                    echo -e "${RED}❌ Неверный формат MAC адреса: $selected_mac${NC}"
+                    echo -e "${CYAN}Попробуйте выбрать другое устройство или ввести MAC вручную${NC}"
+                fi
             fi
         else
             echo -e "${RED}❌ Неверный выбор. Введите число от 0 до $((${#devices[@]}+1))${NC}"
@@ -422,14 +439,23 @@ update_mac_in_code() {
         return 1
     fi
     
+    # Проверяем формат MAC адреса
+    if ! [[ "$new_mac" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]]; then
+        echo -e "${RED}❌ Неверный формат MAC адреса: $new_mac${NC}"
+        echo -e "${CYAN}Ожидается формат: XX:XX:XX:XX:XX:XX${NC}"
+        return 1
+    fi
+    
     # Конвертируем MAC адрес из формата XX:XX:XX:XX:XX:XX в {0xXX, 0xXX, 0xXX, 0xXX, 0xXX, 0xXX}
     local mac_array=$(echo "$new_mac" | sed 's/:/, 0x/g' | sed 's/^/0x/')
+    
+    echo -e "${CYAN}Конвертированный MAC: {$mac_array}${NC}"
     
     # Создаем резервную копию
     cp "$MAIN_C_FILE" "$MAIN_C_FILE.backup"
     
     # Обновляем MAC адрес в коде
-    sed -i.tmp "s/static esp_bd_addr_t bt13_addr = {[^}]*}/static esp_bd_addr_t bt13_addr = {$mac_array}/" "$MAIN_C_FILE"
+    sed -i.tmp "s/static esp_bd_addr_t bt13_addr = {[^}]*};/static esp_bd_addr_t bt13_addr = {$mac_array};/" "$MAIN_C_FILE"
     
     if [ $? -eq 0 ]; then
         rm -f "$MAIN_C_FILE.tmp"
