@@ -44,13 +44,13 @@ static const char *TAG = "BT13_MOTOR_CONTROL";
 static esp_bd_addr_t bt13_addr = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
 
 // Переменные управления двигателем
-static int speed_level = 0;        // Уровень скорости от -10 до +10 (0 = стоп)
+static int speed_level = 0;        // Уровень скорости от -5 до +5 (0 = стоп)
 static bool motor_enabled = false; // Состояние двигателя
 static bool long_press_active = false; // Флаг длинного нажатия
 
 // Настройки управления
-static const int max_speed_level = 10;   // Максимальный уровень скорости
-static const int pwm_per_level = 25;     // PWM на уровень (255/10 ≈ 25)
+static const int max_speed_level = 5;    // Максимальный уровень скорости
+static const int pwm_per_level = 51;     // PWM на уровень (255/5 ≈ 51)
 
 // Переменные для отслеживания длинных нажатий
 static uint32_t long_press_start_time = 0;
@@ -283,7 +283,7 @@ static void print_motor_status(void)
     }
 }
 
-// Короткое нажатие + : добавляет 10% к скорости
+// Короткое нажатие + : добавляет 20% к скорости
 static void short_press_plus(void)
 {
     if (speed_level < max_speed_level) {
@@ -298,7 +298,7 @@ static void short_press_plus(void)
     }
 }
 
-// Короткое нажатие - : убавляет 10% от скорости, может переключить направление
+// Короткое нажатие - : убавляет 20% от скорости, может переключить направление
 static void short_press_minus(void)
 {
     if (speed_level > -max_speed_level) {
