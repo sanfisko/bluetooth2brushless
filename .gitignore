@@ -1,14 +1,15 @@
-# Arduino IDE
-*.hex
-*.elf
-*.map
-*.bin
-
-# Build directories
+# ESP-IDF build files
 build/
 .build/
+sdkconfig
+sdkconfig.old
 
-# Arduino IDE temporary files
+# Binary files
+*.bin
+*.elf
+*.map
+
+# Temporary files
 *.tmp
 *~
 
