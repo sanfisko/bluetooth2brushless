@@ -605,7 +605,6 @@ main() {
     if [ ! -f "main/main.c" ]; then
         print_error "Запустите скрипт из корневой папки проекта!"
         print_info "cd bluetooth2brushless && ./install.sh"
-        print_info "Для быстрой установки: ./install.sh --skip-updates"
         exit 1
     fi
     
