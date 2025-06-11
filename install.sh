@@ -38,39 +38,195 @@ print_header() {
     echo -e "${NC}"
 }
 
+# Проверка системных зависимостей
+check_system_dependencies() {
+    print_info "Проверка системных зависимостей..."
+    
+    local missing_deps=()
+    
+    # Проверка git
+    if ! command -v git &> /dev/null; then
+        missing_deps+=("git")
+    fi
+    
+    # Проверка python3
+    if ! command -v python3 &> /dev/null; then
+        missing_deps+=("python3")
+    fi
+    
+    # Проверка curl
+    if ! command -v curl &> /dev/null; then
+        missing_deps+=("curl")
+    fi
+    
+    # Проверка pip
+    if ! command -v pip3 &> /dev/null && ! python3 -m pip --version &> /dev/null; then
+        missing_deps+=("python3-pip")
+    fi
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        print_error "Отсутствуют необходимые зависимости: ${missing_deps[*]}"
+        print_info "Установите их с помощью пакетного менеджера:"
+        echo ""
+        echo "Ubuntu/Debian:"
+        echo "  sudo apt update && sudo apt install ${missing_deps[*]}"
+        echo ""
+        echo "CentOS/RHEL/Fedora:"
+        echo "  sudo yum install ${missing_deps[*]} (или dnf вместо yum)"
+        echo ""
+        echo "macOS:"
+        echo "  brew install ${missing_deps[*]}"
+        echo ""
+        exit 1
+    else
+        print_success "Все системные зависимости установлены"
+    fi
+}
+
+# Установка ESP-IDF
+install_esp_idf() {
+    print_info "Установка ESP-IDF..."
+    
+    # Сохранение текущей директории
+    local original_dir=$(pwd)
+    
+    # Создание директории
+    ESP_DIR="$HOME/esp"
+    mkdir -p "$ESP_DIR"
+    cd "$ESP_DIR"
+    
+    # Клонирование ESP-IDF
+    print_info "Загрузка ESP-IDF (это может занять несколько минут)..."
+    if git clone --recursive https://github.com/espressif/esp-idf.git; then
+        print_success "ESP-IDF загружен успешно"
+    else
+        print_error "Ошибка загрузки ESP-IDF"
+        cd "$original_dir"
+        exit 1
+    fi
+    
+    cd esp-idf
+    
+    # Установка зависимостей
+    print_info "Установка зависимостей ESP-IDF..."
+    if ./install.sh esp32; then
+        print_success "Зависимости установлены"
+    else
+        print_error "Ошибка установки зависимостей"
+        cd "$original_dir"
+        exit 1
+    fi
+    
+    # Активация окружения
+    print_info "Активация ESP-IDF окружения..."
+    source ./export.sh
+    
+    # Возврат в исходную директорию
+    cd "$original_dir"
+    
+    print_success "ESP-IDF установлен и активирован!"
+}
+
+# Проверка обновлений ESP-IDF
+check_esp_idf_updates() {
+    local esp_idf_path="$1"
+    
+    print_info "Проверка обновлений ESP-IDF..."
+    
+    # Сохранение текущей директории
+    local original_dir=$(pwd)
+    
+    cd "$(dirname "$esp_idf_path")"
+    
+    # Получение информации о текущей и последней версии
+    local current_commit=$(git rev-parse HEAD)
+    git fetch origin >/dev/null 2>&1
+    local latest_commit=$(git rev-parse origin/master)
+    
+    if [ "$current_commit" != "$latest_commit" ]; then
+        print_warning "Доступны обновления ESP-IDF"
+        echo ""
+        read -p "Обновить ESP-IDF до последней версии? (y/n): " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Обновление ESP-IDF..."
+            
+            # Сохранение изменений если есть
+            git stash >/dev/null 2>&1
+            
+            # Обновление
+            if git pull origin master && git submodule update --init --recursive; then
+                print_success "ESP-IDF обновлен успешно"
+                
+                # Переустановка зависимостей
+                print_info "Обновление зависимостей..."
+                ./install.sh esp32
+                
+                cd "$original_dir"
+                return 0
+            else
+                print_error "Ошибка обновления ESP-IDF"
+                cd "$original_dir"
+                return 1
+            fi
+        else
+            print_info "Обновление пропущено"
+        fi
+    else
+        print_success "ESP-IDF уже актуальной версии"
+    fi
+    
+    # Возврат в исходную директорию
+    cd "$original_dir"
+}
+
 # Проверка ESP-IDF окружения
 check_esp_idf() {
     print_info "Проверка ESP-IDF окружения..."
     
-    if [ -z "$IDF_PATH" ]; then
-        print_warning "ESP-IDF окружение не активировано"
-        print_info "Попытка активации из стандартного расположения..."
-        
-        # Попробуем найти ESP-IDF в стандартных местах
-        ESP_IDF_PATHS=(
-            "$HOME/esp/esp-idf/export.sh"
-            "$HOME/.espressif/esp-idf/export.sh"
-            "/opt/esp-idf/export.sh"
-        )
-        
-        ESP_IDF_FOUND=false
-        for path in "${ESP_IDF_PATHS[@]}"; do
-            if [ -f "$path" ]; then
-                print_info "Найден ESP-IDF: $path"
-                print_info "Активация ESP-IDF окружения..."
-                source "$path"
-                ESP_IDF_FOUND=true
-                break
-            fi
-        done
-        
-        if [ "$ESP_IDF_FOUND" = false ]; then
-            print_error "ESP-IDF не найден!"
-            print_info "Установите ESP-IDF:"
+    # Попробуем найти ESP-IDF в стандартных местах
+    ESP_IDF_PATHS=(
+        "$HOME/esp/esp-idf/export.sh"
+        "$HOME/.espressif/esp-idf/export.sh"
+        "/opt/esp-idf/export.sh"
+    )
+    
+    ESP_IDF_FOUND=false
+    ESP_IDF_PATH=""
+    
+    for path in "${ESP_IDF_PATHS[@]}"; do
+        if [ -f "$path" ]; then
+            ESP_IDF_PATH="$path"
+            ESP_IDF_FOUND=true
+            break
+        fi
+    done
+    
+    if [ "$ESP_IDF_FOUND" = false ]; then
+        print_warning "ESP-IDF не найден в системе"
+        echo ""
+        read -p "Установить ESP-IDF автоматически? (y/n): " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            install_esp_idf
+        else
+            print_error "ESP-IDF необходим для работы проекта"
+            print_info "Установите ESP-IDF вручную:"
             echo "  mkdir -p ~/esp && cd ~/esp"
             echo "  git clone --recursive https://github.com/espressif/esp-idf.git"
             echo "  cd esp-idf && ./install.sh esp32 && . ./export.sh"
             exit 1
+        fi
+    else
+        print_success "Найден ESP-IDF: $ESP_IDF_PATH"
+        
+        # Проверка обновлений
+        check_esp_idf_updates "$ESP_IDF_PATH"
+        
+        # Активация окружения
+        if [ -z "$IDF_PATH" ]; then
+            print_info "Активация ESP-IDF окружения..."
+            source "$ESP_IDF_PATH"
         fi
     fi
     
@@ -179,6 +335,115 @@ detect_port() {
     return 1
 }
 
+# Анализ логов для определения успешного подключения
+analyze_monitor_logs() {
+    local log_file="$1"
+    
+    print_info "Анализ логов подключения..."
+    
+    # Проверяем наличие признаков успешного подключения к BT13
+    local connection_patterns=(
+        "BT13.*connected"
+        "HID.*connected" 
+        "Connection established"
+        "Device connected.*BT13"
+        "GAP_BLE_CONN_EST_EVT"
+        "ESP_HIDD_CONNECT_EVT"
+    )
+    
+    for pattern in "${connection_patterns[@]}"; do
+        if grep -q "$pattern" "$log_file" 2>/dev/null; then
+            print_success "Найден паттерн подключения: $pattern"
+            return 0
+        fi
+    done
+    
+    # Проверяем наличие HID команд (признак работающего подключения)
+    local hid_patterns=(
+        "HID Usage: 0x00B[0-9A-F]"
+        "Command:.*Short"
+        "Command:.*Long" 
+        "Speed level.*[0-9]"
+        "PWM:.*[0-9]"
+        "Direction:.*FORWARD\|REVERSE\|STOP"
+        "State:.*ON\|OFF"
+    )
+    
+    local hid_found=0
+    for pattern in "${hid_patterns[@]}"; do
+        if grep -q "$pattern" "$log_file" 2>/dev/null; then
+            print_success "Найдена HID активность: $pattern"
+            hid_found=1
+        fi
+    done
+    
+    if [ $hid_found -eq 1 ]; then
+        return 0
+    fi
+    
+    # Проверяем наличие MAC адреса BT13 в логах
+    if grep -q "8B:EB:75:4E:65:97\|8b:eb:75:4e:65:97" "$log_file" 2>/dev/null; then
+        print_success "Найден MAC адрес BT13 в логах"
+        return 0
+    fi
+    
+    print_warning "Признаки подключения к BT13 не найдены"
+    return 1  # Подключение не обнаружено
+}
+
+# Функция удаления ESP-IDF
+cleanup_esp_idf() {
+    print_info "Анализ использования диска..."
+    
+    # Проверяем размер ESP-IDF
+    if [ -d "$HOME/esp/esp-idf" ]; then
+        local esp_size=$(du -sh "$HOME/esp/esp-idf" 2>/dev/null | cut -f1)
+        print_info "ESP-IDF занимает: $esp_size"
+        echo ""
+        print_warning "ESP32 успешно прошит и работает с BT13!"
+        print_info "ESP-IDF больше не нужен для работы устройства."
+        print_info "Вы можете удалить его для освобождения места (~2-3 ГБ)."
+        echo ""
+        print_warning "⚠️  ВНИМАНИЕ: После удаления ESP-IDF вы не сможете:"
+        echo "  - Перепрошивать ESP32 без повторной установки ESP-IDF"
+        echo "  - Изменять код проекта"
+        echo "  - Обновлять прошивку"
+        echo ""
+        print_info "Варианты действий:"
+        echo "  1) Удалить ESP-IDF (освободить $esp_size)"
+        echo "  2) Переместить в архив (~/.esp-idf-backup)"
+        echo "  3) Оставить как есть"
+        echo ""
+        read -p "Ваш выбор (1-3): " -n 1 -r
+        echo ""
+        
+        case $REPLY in
+            1)
+                print_info "Удаление ESP-IDF..."
+                if rm -rf "$HOME/esp/esp-idf"; then
+                    print_success "ESP-IDF удален! Освобождено: $esp_size"
+                    print_info "Для повторной прошивки запустите ./install.sh - ESP-IDF установится автоматически"
+                else
+                    print_error "Ошибка удаления ESP-IDF"
+                fi
+                ;;
+            2)
+                print_info "Перемещение ESP-IDF в архив..."
+                mkdir -p "$HOME/.esp-idf-backup"
+                if mv "$HOME/esp/esp-idf" "$HOME/.esp-idf-backup/esp-idf-$(date +%Y%m%d)"; then
+                    print_success "ESP-IDF перемещен в архив: ~/.esp-idf-backup/"
+                    print_info "Для восстановления: mv ~/.esp-idf-backup/esp-idf-* ~/esp/esp-idf"
+                else
+                    print_error "Ошибка перемещения ESP-IDF"
+                fi
+                ;;
+            *)
+                print_info "ESP-IDF оставлен без изменений"
+                ;;
+        esac
+    fi
+}
+
 # Мониторинг
 start_monitor() {
     local port="$1"
@@ -196,13 +461,49 @@ start_monitor() {
     echo "  Средняя     → полная остановка"
     echo ""
     print_info "Запуск мониторинга (Ctrl+] для выхода)..."
+    print_info "Мониторинг будет анализировать подключение к BT13..."
     echo ""
     
     # Небольшая задержка перед мониторингом
     sleep 2
     
-    # Запуск мониторинга
-    idf.py -p "$port" monitor
+    # Создание временного файла для логов
+    local log_file="/tmp/esp32_monitor_$$.log"
+    
+    # Запуск мониторинга с сохранением логов
+    print_info "Для выхода из мониторинга нажмите Ctrl+]"
+    echo ""
+    idf.py -p "$port" monitor | tee "$log_file"
+    
+    echo ""
+    print_info "Мониторинг завершен. Анализ результатов..."
+    
+    # Анализ логов
+    if analyze_monitor_logs "$log_file"; then
+        print_success "Обнаружено успешное подключение к BT13!"
+        cleanup_esp_idf
+    else
+        print_warning "Подключение к BT13 не обнаружено в логах"
+        print_info "Возможные причины:"
+        echo "  - BT13 не включен или разряжен"
+        echo "  - Неправильный MAC адрес в коде"
+        echo "  - Слишком короткое время мониторинга"
+        echo ""
+        
+        # Предложение принудительного удаления
+        echo ""
+        read -p "Удалить ESP-IDF принудительно? (y/n): " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Принудительное удаление ESP-IDF..."
+            cleanup_esp_idf
+        else
+            print_info "ESP-IDF оставлен для повторных попыток"
+        fi
+    fi
+    
+    # Очистка временного файла
+    rm -f "$log_file"
 }
 
 # Скорость прошивки (фиксированная)
@@ -220,6 +521,9 @@ main() {
         print_info "cd bluetooth2brushless && ./install.sh"
         exit 1
     fi
+    
+    # Проверка системных зависимостей
+    check_system_dependencies
     
     # Проверка ESP-IDF
     check_esp_idf
