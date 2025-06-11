@@ -139,17 +139,7 @@ flash_esp32() {
         echo "  - ESP32 в режиме загрузки (зажмите BOOT при подключении)"
         echo "  - Проблемы с кабелем USB"
         
-        # Предложение попробовать с меньшей скоростью
-        if [ "$baud_rate" = "460800" ]; then
-            echo ""
-            read -p "Попробовать с меньшей скоростью (115200)? (y/n): " -n 1 -r
-            echo ""
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                print_info "Повторная попытка с скоростью 115200..."
-                flash_esp32 "$port" "115200"
-                return $?
-            fi
-        fi
+
         
         # Предложение повторить прошивку
         echo ""
@@ -161,8 +151,6 @@ flash_esp32() {
         else
             print_warning "Прошивка пропущена. Можете прошить вручную:"
             echo "  idf.py -p $port -b $baud_rate flash"
-            echo "  или с меньшей скоростью:"
-            echo "  idf.py -p $port -b 115200 flash"
             return 1
         fi
     fi
@@ -170,8 +158,6 @@ flash_esp32() {
 
 # Определение порта ESP32
 detect_port() {
-    print_info "Поиск ESP32..."
-    
     # Список возможных портов
     POSSIBLE_PORTS=(
         "/dev/ttyUSB0"
@@ -183,27 +169,14 @@ detect_port() {
     )
     
     for port in "${POSSIBLE_PORTS[@]}"; do
-        if ls $port 2>/dev/null; then
-            print_success "Найден порт: $port"
+        if ls $port 2>/dev/null >/dev/null; then
             echo "$port"
             return 0
         fi
     done
     
-    print_warning "Автоматическое определение порта не удалось"
-    print_info "Доступные порты:"
-    ls /dev/tty* 2>/dev/null | grep -E "(USB|ACM|usbserial)" || echo "  Порты не найдены"
-    
-    # Запрос порта у пользователя
-    echo ""
-    read -p "Введите порт ESP32 (например, /dev/ttyUSB0): " user_port
-    if [ -e "$user_port" ]; then
-        echo "$user_port"
-        return 0
-    else
-        print_error "Порт $user_port не существует"
-        return 1
-    fi
+    # Если автоматическое определение не удалось
+    return 1
 }
 
 # Мониторинг
@@ -232,22 +205,9 @@ start_monitor() {
     idf.py -p "$port" monitor
 }
 
-# Выбор скорости прошивки
-choose_baud_rate() {
-    echo ""
-    print_info "Выберите скорость прошивки:"
-    echo "  1) 460800 (быстро, по умолчанию)"
-    echo "  2) 115200 (медленно, для проблемных кабелей)"
-    echo "  3) 921600 (очень быстро, может не работать)"
-    echo ""
-    read -p "Ваш выбор (1-3, Enter для по умолчанию): " -n 1 -r
-    echo ""
-    
-    case $REPLY in
-        2) echo "115200" ;;
-        3) echo "921600" ;;
-        *) echo "460800" ;;
-    esac
+# Скорость прошивки (фиксированная)
+get_baud_rate() {
+    echo "115200"
 }
 
 # Основная функция
@@ -275,15 +235,27 @@ main() {
     build_project
     
     # Определение порта
+    print_info "Поиск ESP32..."
     ESP_PORT=$(detect_port)
     if [ $? -ne 0 ]; then
-        print_error "Не удалось определить порт ESP32"
-        print_info "Подключите ESP32 и запустите скрипт снова"
-        exit 1
+        print_warning "Автоматическое определение порта не удалось"
+        print_info "Доступные порты:"
+        ls /dev/tty* 2>/dev/null | grep -E "(USB|ACM|usbserial)" || echo "  Порты не найдены"
+        
+        # Запрос порта у пользователя
+        echo ""
+        read -p "Введите порт ESP32 (например, /dev/ttyUSB0): " ESP_PORT
+        if [ ! -e "$ESP_PORT" ]; then
+            print_error "Порт $ESP_PORT не существует"
+            exit 1
+        fi
+    else
+        print_success "Найден порт: $ESP_PORT"
     fi
     
-    # Выбор скорости прошивки
-    BAUD_RATE=$(choose_baud_rate)
+    # Установка скорости прошивки
+    BAUD_RATE=$(get_baud_rate)
+    print_info "Скорость прошивки: $BAUD_RATE (надежная для всех кабелей)"
     
     # Прошивка
     if flash_esp32 "$ESP_PORT" "$BAUD_RATE"; then
