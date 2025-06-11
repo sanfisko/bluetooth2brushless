@@ -305,11 +305,22 @@ check_esp_idf() {
         # Активация окружения
         if [ -z "$IDF_PATH" ]; then
             print_info "Активация ESP-IDF окружения..."
+            # Активация в текущей оболочке
+            set -a  # автоматический экспорт переменных
             source "$ESP_IDF_PATH"
+            set +a
         fi
     fi
     
     # Проверка версии ESP-IDF
+    # Попробуем активировать ESP-IDF если idf.py не найден
+    if ! command -v idf.py &> /dev/null; then
+        print_info "idf.py не найден, активируем ESP-IDF..."
+        set -a
+        source "$ESP_IDF_PATH"
+        set +a
+    fi
+    
     if command -v idf.py &> /dev/null; then
         IDF_VERSION=$(idf.py --version 2>&1 | grep -o "v[0-9]\+\.[0-9]\+\.[0-9]\+")
         print_success "ESP-IDF активирован: $IDF_VERSION"
@@ -318,14 +329,31 @@ check_esp_idf() {
         echo ""
     else
         print_error "idf.py не найден! Проверьте установку ESP-IDF"
+        print_info "Попробуйте выполнить вручную:"
+        echo "  source $ESP_IDF_PATH"
+        echo "  idf.py --version"
         exit 1
     fi
+}
+
+# Выполнение команды ESP-IDF с активацией окружения
+run_idf_command() {
+    local cmd="$1"
+    shift
+    
+    # Если ESP-IDF не активирован, пробуем активировать
+    if [ -z "$IDF_PATH" ] && [ -n "$ESP_IDF_PATH" ]; then
+        source "$ESP_IDF_PATH" >/dev/null 2>&1
+    fi
+    
+    # Выполняем команду
+    "$cmd" "$@"
 }
 
 # Установка цели ESP32
 set_target() {
     print_info "Установка цели ESP32..."
-    if idf.py set-target esp32; then
+    if run_idf_command idf.py set-target esp32; then
         print_success "Цель ESP32 установлена"
     else
         print_error "Ошибка установки цели ESP32"
@@ -340,7 +368,7 @@ build_project() {
     print_info "⏱️  Это может занять несколько минут при первой сборке..."
     echo ""
     
-    if idf.py build; then
+    if run_idf_command idf.py build; then
         echo ""
         print_success "✅ Проект собран успешно!"
         echo ""
@@ -361,7 +389,7 @@ flash_esp32() {
     print_info "Прошивка ESP32 через порт $port (скорость: $baud_rate)..."
     
     # Попытка прошивки с указанной скоростью
-    if idf.py -p "$port" -b "$baud_rate" flash; then
+    if run_idf_command idf.py -p "$port" -b "$baud_rate" flash; then
         print_success "Прошивка завершена успешно!"
         return 0
     else
@@ -560,7 +588,7 @@ start_monitor() {
     # Запуск мониторинга с сохранением логов
     print_info "Для выхода из мониторинга нажмите Ctrl+]"
     echo ""
-    idf.py -p "$port" monitor | tee "$log_file"
+    run_idf_command idf.py -p "$port" monitor | tee "$log_file"
     
     echo ""
     print_info "Мониторинг завершен. Анализ результатов..."
@@ -604,10 +632,19 @@ main() {
     
     # Проверка параметров командной строки
     SKIP_UPDATES=false
-    if [ "$1" = "--skip-updates" ] || [ "$1" = "-s" ]; then
-        SKIP_UPDATES=true
-        print_info "Режим быстрой установки (пропуск проверки обновлений)"
-    fi
+    ESP_IDF_ACTIVATED=false
+    
+    for arg in "$@"; do
+        case $arg in
+            --skip-updates|-s)
+                SKIP_UPDATES=true
+                print_info "Режим быстрой установки (пропуск проверки обновлений)"
+                ;;
+            --esp-idf-activated)
+                ESP_IDF_ACTIVATED=true
+                ;;
+        esac
+    done
     
     # Проверка, что мы в правильной директории
     if [ ! -f "main/main.c" ]; then
@@ -619,8 +656,19 @@ main() {
     # Проверка системных зависимостей
     check_system_dependencies
     
-    # Проверка ESP-IDF
-    check_esp_idf
+    # Проверка ESP-IDF (пропускаем если уже активирован)
+    if [ "$ESP_IDF_ACTIVATED" = false ]; then
+        check_esp_idf
+    else
+        print_success "ESP-IDF уже активирован"
+        if command -v idf.py &> /dev/null; then
+            IDF_VERSION=$(idf.py --version 2>&1 | grep -o "v[0-9]\+\.[0-9]\+\.[0-9]\+")
+            print_success "ESP-IDF версия: $IDF_VERSION"
+            echo ""
+            print_info "Переходим к сборке и прошивке проекта..."
+            echo ""
+        fi
+    fi
     
     # Установка цели (только если нужно)
     if [ ! -f "sdkconfig" ]; then
@@ -669,6 +717,12 @@ main() {
 
 # Обработка Ctrl+C
 trap 'print_warning "Установка прервана пользователем"; exit 1' INT
+
+# Проверка, нужно ли перезапустить скрипт с активированным ESP-IDF
+if [ -n "$ESP_IDF_PATH" ] && [ -z "$IDF_PATH" ] && [ "$1" != "--esp-idf-activated" ]; then
+    print_info "Перезапуск скрипта с активированным ESP-IDF..."
+    exec bash -c "source '$ESP_IDF_PATH' && '$0' --esp-idf-activated"
+fi
 
 # Запуск
 main "$@"
