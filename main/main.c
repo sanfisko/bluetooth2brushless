@@ -102,7 +102,7 @@ void app_main(void)
 {
     esp_err_t ret;
 
-    ESP_LOGI(TAG, "=== ESP32 Bluetooth Motor Control ===");
+    ESP_LOGI(TAG, "=== ESP32 Remote Motor Control ===");
     ESP_LOGI(TAG, "System initialization...");
 
     // Инициализация NVS
