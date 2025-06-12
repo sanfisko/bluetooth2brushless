@@ -24,9 +24,7 @@ cd esp32-bluetooth-motor-control
 ./install.sh
 ```
 
-> 📡 **install.sh** - automatic Bluetooth device discovery and MAC address configuration. [More details →](README_install_bt.md)
-> 
-> 🐧 **Ubuntu users**: If scanning doesn't work, see [Bluetooth guide →](UBUNTU_BLUETOOTH.md)
+> 📡 **install.sh** - automatic Bluetooth device discovery and MAC address configuration.
 
 **The script automatically:**
 - ✅ Checks system dependencies (git, python3, curl, pip, cmake)
