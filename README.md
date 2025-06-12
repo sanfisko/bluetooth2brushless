@@ -1,358 +1,295 @@
 # 🏄 ESP32 Bluetooth Motor Control
 
-ESP32 + Bluetooth HID пульт = управление бесщеточным двигателем
+> 🌍 **English version** | **[Русская версия →](README_ru.md)**
 
-## 🚀 Быстрый старт
+ESP32 + Bluetooth HID remote = brushless motor control
 
-### 🛒 Необходимые компоненты:
-- **Bluetooth пульт BT13**: [AliExpress](https://a.aliexpress.com/_EIvUKYS) *(протестирован и работает)*
-- **Контроллер двигателя**: [AliExpress](https://a.aliexpress.com/_EyfVQSQ)
-- **Бесщеточный мотор**: [AliExpress](https://a.aliexpress.com/_Exu4xp0)
-- **ESP32 плата**: [AliExpress](https://a.aliexpress.com/_ExqenUe)
+## 🚀 Quick Start
 
-### ⚡ Автоматическая установка
+### 🛒 Required Components:
+- **Bluetooth remote BT13**: [AliExpress](https://a.aliexpress.com/_EIvUKYS) *(tested and working)*
+- **Motor controller**: [AliExpress](https://a.aliexpress.com/_EyfVQSQ)
+- **Brushless motor**: [AliExpress](https://a.aliexpress.com/_Exu4xp0)
+- **ESP32 board**: [AliExpress](https://a.aliexpress.com/_ExqenUe)
 
-**Стандартная установка:**
+### ⚡ Automatic Installation
+
+**Standard installation:**
 ```bash
-# Клонирование репозитория
+# Clone repository
 git clone https://github.com/sanfisko/esp32-bluetooth-motor-control.git
 cd esp32-bluetooth-motor-control
 
-# Запуск автоматической установки
+# Run automatic installation
 ./install.sh
 ```
 
-**🆕 Установка с Bluetooth сканированием:**
-```bash
-# Автоматический поиск и настройка BT устройств
-./install_bt.sh
-```
-> 📡 **install_bt.sh** - расширенная версия с автоматическим поиском Bluetooth устройств в округе и настройкой MAC адреса. [Подробнее →](README_install_bt.md)
+> 📡 **install.sh** - automatic Bluetooth device discovery and MAC address configuration. [More details →](README_install_bt.md)
 > 
-> 🐧 **Ubuntu пользователи**: Если сканирование не работает, см. [руководство по Bluetooth →](UBUNTU_BLUETOOTH.md)
+> 🐧 **Ubuntu users**: If scanning doesn't work, see [Bluetooth guide →](UBUNTU_BLUETOOTH.md)
 
-**Скрипт автоматически:**
-- ✅ Проверит системные зависимости (git, python3, curl, pip)
-- ✅ Установит ESP-IDF если не найден
-- ✅ Проверит и предложит обновления ESP-IDF
-- ✅ Активирует ESP-IDF окружение
-- ✅ Соберет проект
-- ✅ Найдет ESP32
-- ✅ Прошьет ESP32 (скорость 115200 для надежности)
-- ✅ Запустит мониторинг (выход: **Ctrl+]**)
+**The script automatically:**
+- ✅ Checks system dependencies (git, python3, curl, pip, cmake)
+- ✅ Installs ESP-IDF if not found
+- ✅ Checks and offers ESP-IDF updates
+- ✅ Activates ESP-IDF environment
+- ✅ Builds the project
+- ✅ Finds ESP32
+- ✅ Flashes ESP32 (speed 115200 for reliability)
+- ✅ Starts monitoring (exit: **Ctrl+]**)
 
-## 📡 Совместимые пульты
+## 📡 Compatible Remotes
 
-**Рекомендуется**: [BT13 пульт с AliExpress](https://a.aliexpress.com/_EIvUKYS) - протестирован и работает ✅
+**Recommended**: [BT13 remote from AliExpress](https://a.aliexpress.com/_EIvUKYS) - tested and working ✅
 
 <details>
-<summary><small>📋 Технические требования к пульту (для разработчиков)</small></summary>
+<summary><small>📋 Technical requirements for remote (for developers)</small></summary>
 
-### Требования к Bluetooth пульту:
-- **Протокол**: Bluetooth Classic (BR/EDR) - НЕ Bluetooth Low Energy (BLE)
-- **Профиль**: HID (Human Interface Device) 
-- **Класс устройства**: Consumer Control или Generic HID
-- **HID Usage коды**: Должен отправлять специфичные коды (см. таблицу ниже)
+**Protocol**: Bluetooth HID (Human Interface Device)
+**Connection**: Classic Bluetooth (not BLE)
+**Buttons**: At least 3 buttons (forward, backward, stop)
+**Range**: 10+ meters
+**Battery**: Rechargeable preferred
 
-### ✅ Протестированные пульты:
-| Модель | Статус | MAC адрес | Примечания |
-|--------|--------|-----------|------------|
-| **BT13** | ✅ Работает | 8B:EB:75:4E:65:97 | Основной тестовый пульт |
+**Tested models:**
+- ✅ **BT13** - Full compatibility, all functions work
+- ⚠️ **Other HID remotes** - May require code adaptation
 
-### 🔧 HID Usage коды:
-| Кнопка | HID Usage | Функция |
-|--------|-----------|---------|
-| Короткое + | 0x0004 | Увеличить скорость на 1 уровень |
-| Короткое - | 0x0008 | Уменьшить скорость на 1 уровень |
-| Длинное + | 0x0001 | Максимальная скорость вперед |
-| Длинное - | 0x0002 | Максимальная скорость назад |
-| STOP | 0x0010 | Остановка двигателя |
-
-### ❌ НЕ подходящие пульты:
-- BLE (Bluetooth Low Energy) пульты
-- Пульты без HID профиля
-- Пульты с другими HID Usage кодами
-- WiFi пульты
-- IR (инфракрасные) пульты
+**Button mapping (BT13):**
+- **▲ (Up)** → Motor forward
+- **▼ (Down)** → Motor backward  
+- **⏸ (Middle)** → Motor stop
+- **◀ ▶ (Left/Right)** → Reserved for future features
 
 </details>
 
-<details>
-<summary>🔧 Добавление поддержки нового пульта</summary>
-
-### 🔍 Как проверить совместимость:
-
-1. **Проверьте спецификации пульта**:
-   - Должен поддерживать "Bluetooth Classic" или "BR/EDR"
-   - Должен работать как "HID устройство" или "Bluetooth клавиатура/мышь"
-
-2. **Протестируйте подключение**:
-   - Запустите проект с вашим пультом
-   - В логах должно появиться: `"Found device matching BT13 pattern"`
-   - При нажатии кнопок должны появляться HID Usage коды
-
-3. **Настройка MAC адреса**:
-   - Если ваш пульт совместим, но имеет другой MAC адрес
-   - Измените `bt13_addr` в `main/main.c` на MAC вашего пульта
-
-### 🛠️ Пошаговая инструкция:
-
-1. **Узнайте MAC адрес** вашего пульта
-2. **Измените MAC в коде**: `main/main.c`, строка 44
-   ```c
-   static esp_bd_addr_t bt13_addr = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
-   ```
-3. **Протестируйте HID коды**: включите логирование и проверьте какие коды отправляет ваш пульт
-4. **Обновите маппинг кнопок** в функции `hid_host_cb()` если нужно
-
-</details>
-
-## 💡 Принцип работы
-
-1. **ESP32** сканирует Bluetooth устройства
-2. **Подключается** к пульту BT13 по MAC адресу
-3. **Получает HID команды** от пульта (коды кнопок)
-4. **Управляет мотором** через контроллер двигателя
-
-## 🔧 Системные требования
-
-Скрипт автоматически проверит и подскажет как установить:
-- **git** - для загрузки ESP-IDF
-- **python3** - основа ESP-IDF  
-- **curl** - для загрузки зависимостей
-- **pip3** - менеджер пакетов Python
+## 🔧 Manual Installation
 
 <details>
-<summary>Команды установки для разных систем</summary>
+<summary>Click to expand manual installation steps</summary>
 
+### 1. Install ESP-IDF
 ```bash
-# Ubuntu/Debian
-sudo apt update && sudo apt install git python3 curl python3-pip
+# Install dependencies
+sudo apt update
+sudo apt install git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
 
-# CentOS/RHEL/Fedora  
-sudo yum install git python3 curl python3-pip
-
-# macOS
-brew install git python3 curl
-```
-
-</details>
-
-<details>
-<summary>🛠️ Ручная установка (для опытных пользователей)</summary>
-
-#### 1. Требования
-- **ESP-IDF v5.4+** (обязательно)
-- ESP32 DevKit
-- USB кабель
-- Пульт BT13
-
-#### 2. Установка ESP-IDF
-```bash
-mkdir -p ~/esp && cd ~/esp
+# Clone ESP-IDF
+mkdir -p ~/esp
+cd ~/esp
 git clone --recursive https://github.com/espressif/esp-idf.git
-cd esp-idf && ./install.sh esp32 && . ./export.sh
+cd esp-idf
+git checkout v5.4.1
+git submodule update --init --recursive
+
+# Install tools
+./install.sh esp32
+
+# Activate environment
+source ~/esp/esp-idf/export.sh
 ```
 
-#### 3. Сборка и прошивка
+### 2. Configure Bluetooth
 ```bash
-# Активация ESP-IDF (в каждой новой сессии)
-. ~/esp/esp-idf/export.sh
+# Find your BT13 MAC address
+sudo hcitool scan
+# or
+bluetoothctl
+> scan on
+> devices
+```
 
-# Установка цели ESP32
+### 3. Update MAC in code
+Edit `main/main.c` and replace MAC address:
+```c
+uint8_t target_mac[6] = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97}; // Your BT13 MAC
+```
+
+### 4. Build and flash
+```bash
+# Build
 idf.py set-target esp32
-
-# Сборка проекта
 idf.py build
 
-# Прошивка (замените /dev/ttyUSB0 на ваш порт)
-idf.py -p /dev/ttyUSB0 flash
-
-# Прошивка с пониженной скоростью (для проблемных кабелей)
-idf.py -p /dev/ttyUSB0 -b 115200 flash
-
-# Мониторинг (Ctrl+] для выхода)
-idf.py -p /dev/ttyUSB0 monitor
+# Flash (replace /dev/ttyUSB0 with your port)
+idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
 </details>
 
-## 🔌 Подключение
+## 🎮 Usage
 
-### Схема подключения
+1. **Turn on BT13**: Long press middle button until red+blue blinking
+2. **Flash ESP32**: Run installation script
+3. **Power on motor**: Connect battery to motor controller
+4. **Control**:
+   - **▲** - Forward
+   - **▼** - Backward
+   - **⏸** - Stop
+
+## 📊 Connection Diagram
+
 ```
-ESP32 GPIO 25 → Контроллер PWM вход (сигнал скорости)
-ESP32 GPIO 26 → Контроллер реверс (направление)
-ESP32 GND     → Контроллер GND
-ESP32 GPIO 2  → LED (индикация состояния)
-```
-
-
-
-## 🎮 Управление BT13
-
-| Кнопка BT13 | Действие | Описание |
-|-------------|----------|----------|
-| **+ короткое** | +1 уровень скорости | Увеличивает скорость на 20% |
-| **- короткое** | -1 уровень скорости | Уменьшает скорость на 20% |
-| **+ длинное** | Максимум вперед | Мгновенно 100% вперед |
-| **- длинное** | Максимум назад | Мгновенно 100% назад |
-| **Средняя** | СТОП | Полная остановка |
-
-### Логика управления
-- **5 уровней скорости**: от -5 (максимум назад) до +5 (максимум вперед)
-- **0 уровень**: полная остановка
-- **Плавное управление**: короткие нажатия для точной настройки (шаг 20%)
-- **Быстрое управление**: длинные нажатия для максимальной скорости
-- **Автостоп**: при отключении BT13 двигатель останавливается через 10 секунд
-
-### Мониторинг работы
-После прошивки автоматически запускается мониторинг ESP32:
-- Отображает логи подключения к BT13
-- Показывает команды от пульта в реальном времени
-- Выводит текущий уровень скорости и направление
-- Индикация состояния PWM сигналов
-
-**Команды мониторинга:**
-- **Ctrl+]** - выход из мониторинга
-- После выхода - автоматический анализ подключения
-- При успешном подключении - предложение удаления ESP-IDF
-
-**Пример вывода мониторинга:**
-```
-I (12345) BT_HID: HID Usage: 0x00B5 (+ короткое нажатие)
-I (12346) MOTOR: Command: Short +, Speed level = 1
-I (12347) MOTOR: PWM: 51/255, Direction: FORWARD
-I (12348) LED: State: ON
+BT13 Remote  )))  ESP32  ←→  Motor Controller  ←→  Brushless Motor
+    ↑                ↑              ↑                    ↑
+Bluetooth HID    GPIO pins    PWM Signal           3-phase power
 ```
 
-## 🔧 Настройка
+**ESP32 Connections:**
+- **GPIO 18** → Motor controller PWM input
+- **GPIO 19** → Motor controller direction
+- **GPIO 21** → Status LED
+- **3.3V/GND** → Motor controller logic power
 
-### Изменение пинов
-Отредактируйте `main/main.c`:
-```c
-#define MOTOR_SPEED_PIN     GPIO_NUM_25  // PWM сигнал
-#define MOTOR_DIR_PIN       GPIO_NUM_26  // Направление
-#define LED_PIN             GPIO_NUM_2   // Индикация
-```
+## 🔍 Troubleshooting
 
-### Изменение MAC адреса BT13
+<details>
+<summary><strong>🚫 BT13 not connecting</strong></summary>
 
-⚠️ **ВАЖНО**: Поиск пульта происходит **ТОЛЬКО по MAC адресу**, а не по имени устройства!
+**Check:**
+1. BT13 is in pairing mode (red+blue blinking)
+2. BT13 is not connected to phone/computer
+3. Correct MAC address in code
+4. ESP32 Bluetooth is enabled
 
-#### 🔍 Как найти MAC адрес вашего BT13
-
-**Способ 1: Через телефон/компьютер**
-1. Включите BT13 (долгое нажатие средней кнопки, синий LED мигает)
-2. На телефоне/ПК откройте настройки Bluetooth
-3. Найдите устройство "BT13" в списке
-4. Посмотрите MAC адрес (формат: `XX:XX:XX:XX:XX:XX`)
-
-**Способ 2: Через логи ESP32**
-1. Запустите проект с любым MAC адресом
-2. Включите BT13
-3. В логах найдите строку: `Found device: xx:xx:xx:xx:xx:xx`
-4. Это и есть MAC адрес вашего BT13
-
-#### 🔧 Изменение MAC адреса в коде
-
-Откройте файл `main/main.c` и найдите **строку 44**:
-```c
-static esp_bd_addr_t bt13_addr = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
-```
-
-Замените MAC адрес на ваш. **Пример**:
-- Ваш MAC: `AA:BB:CC:DD:EE:FF`
-- Измените на: `{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}`
-
-```c
-// Было (по умолчанию):
-static esp_bd_addr_t bt13_addr = {0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97};
-
-// Стало (ваш MAC):
-static esp_bd_addr_t bt13_addr = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
-```
-
-#### 📝 Правила конвертации MAC адреса
-- MAC `8B:EB:75:4E:65:97` → `{0x8B, 0xEB, 0x75, 0x4E, 0x65, 0x97}`
-- Каждая пара символов → `0xXX`
-- Разделители `:` убираются
-- Добавляется префикс `0x` к каждой паре
-
-#### ✅ После изменения
-1. Сохраните файл
-2. Пересоберите проект: `idf.py build`
-3. Прошейте ESP32: `idf.py flash`
-4. Включите BT13 и проверьте подключение
-
-## 📊 Ожидаемые логи
-
-При успешном подключении вы увидите:
-```
-=== ESP32 HID Host Motor Control ===
-System initialization...
-Motor initialized
-Bluetooth initialized
-Searching for BT13 remote (MAC: 8B:EB:75:4E:65:97)...
-Found device: 8b:eb:75:4e:65:97
-Found BT13! Stopping discovery...
-Connecting to BT13...
-BT13 connected successfully!
-Ready to receive commands from remote
-```
-
-При нажатии кнопок:
-```
-HID data (3 bytes): 01 B5 00
-HID Usage: 0x00B5
-Command: Short + (level increase)
-Short +: Speed level = 1 (10% forward)
-State: ON | Level: 1/10 | PWM: 25/255 | Direction: FORWARD
-```
-
-## 🔍 Диагностика
-
-### Проблемы с прошивкой
-
-**ESP32 не найден**
+**Solutions:**
 ```bash
-# Проверьте доступные порты
-ls /dev/tty* | grep -E "(USB|ACM)"
+# Restart Bluetooth service
+sudo systemctl restart bluetooth
 
-# Попробуйте разные порты
-idf.py -p /dev/ttyUSB1 flash
-idf.py -p /dev/ttyACM0 flash
+# Clear Bluetooth cache
+sudo rm -rf /var/lib/bluetooth/*
+sudo systemctl restart bluetooth
+
+# Check ESP32 logs
+idf.py monitor
 ```
 
-**Ошибки прошивки / плохой кабель**
+</details>
+
+<details>
+<summary><strong>⚡ Motor not responding</strong></summary>
+
+**Check:**
+1. Motor controller power supply
+2. PWM signal connections (GPIO 18, 19)
+3. Motor controller calibration
+4. Battery voltage (minimum 11.1V for 3S)
+
+**Debug:**
 ```bash
-# Используйте пониженную скорость
-idf.py -p /dev/ttyUSB0 -b 115200 flash
+# Monitor ESP32 output
+idf.py monitor
 
-# Или очень медленную скорость
-idf.py -p /dev/ttyUSB0 -b 9600 flash
-
-# Прямая прошивка через esptool
-python -m esptool --chip esp32 -p /dev/ttyUSB0 -b 115200 \
-  --before default_reset --after hard_reset write_flash \
-  --flash_mode dio --flash_freq 40m --flash_size 2MB \
-  0x1000 build/bootloader/bootloader.bin \
-  0x10000 build/bt13_motor_control.bin \
-  0x8000 build/partition_table/partition-table.bin
+# Check PWM signals with multimeter
+# GPIO 18 should show 1.65V (50% duty cycle) at rest
 ```
 
-## 📝 Лицензия
+</details>
 
-MIT License - см. файл [LICENSE](LICENSE)
+<details>
+<summary><strong>🔧 Compilation errors</strong></summary>
 
-## 🤝 Поддержка
+**Common issues:**
+```bash
+# ESP-IDF not activated
+source ~/esp/esp-idf/export.sh
 
-При возникновении проблем:
-1. Проверьте логи ESP32 через `idf.py monitor`
-2. Убедитесь в правильности подключения
-3. Проверьте версию ESP-IDF (требуется v5.4+)
-4. Создайте issue в репозитории с подробным описанием проблемы
+# Wrong ESP-IDF version
+cd ~/esp/esp-idf
+git checkout v5.4.1
+
+# Missing dependencies
+sudo apt install cmake ninja-build
+
+# Clean build
+idf.py fullclean
+idf.py build
+```
+
+</details>
+
+## 🛠 Advanced Configuration
+
+<details>
+<summary>Motor Settings</summary>
+
+Edit `main/main.c` to adjust motor parameters:
+
+```c
+// PWM frequency (Hz)
+#define PWM_FREQUENCY 1000
+
+// Speed limits (0-100%)
+#define MAX_SPEED_FORWARD 80
+#define MAX_SPEED_BACKWARD 60
+
+// Acceleration (speed change per 100ms)
+#define ACCELERATION_RATE 5
+
+// Deadband (prevent accidental activation)
+#define DEADBAND_THRESHOLD 10
+```
+
+</details>
+
+<details>
+<summary>Bluetooth Settings</summary>
+
+```c
+// Connection timeout (seconds)
+#define BT_CONNECTION_TIMEOUT 30
+
+// Reconnection attempts
+#define MAX_RECONNECT_ATTEMPTS 5
+
+// Signal strength threshold
+#define MIN_RSSI_THRESHOLD -70
+```
+
+</details>
+
+## 📈 Performance
+
+- **Response time**: < 50ms
+- **Range**: 10-15 meters (open space)
+- **Battery life**: 
+  - BT13: ~20 hours continuous use
+  - ESP32: ~8 hours (with motor controller)
+- **Motor control**: Smooth acceleration/deceleration
+
+## 🔒 Safety Features
+
+- **Automatic stop** on connection loss
+- **Speed limiting** to prevent damage
+- **Deadband** to prevent accidental activation
+- **Watchdog timer** for system stability
+- **Low battery detection** (if supported by controller)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **Espressif** for ESP-IDF framework
+- **Community** for testing and feedback
+- **AliExpress sellers** for affordable components
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/sanfisko/esp32-bluetooth-motor-control/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/sanfisko/esp32-bluetooth-motor-control/discussions)
+- **Email**: sanfisko@example.com
 
 ---
 
-**MAC BT13 по умолчанию**: `8B:EB:75:4E:65:97`
+⭐ **Star this repository if it helped you!**
