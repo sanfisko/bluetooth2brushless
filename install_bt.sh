@@ -32,6 +32,168 @@ print_header() {
     echo ""
 }
 
+# Функция для проверки и установки системных зависимостей
+check_system_dependencies() {
+    echo -e "${BLUE}🔍 Проверка системных зависимостей...${NC}"
+    
+    local missing_deps=()
+    local os_type=$(uname)
+    
+    # Проверяем основные инструменты
+    if ! command -v git >/dev/null 2>&1; then
+        missing_deps+=("git")
+    fi
+    
+    if ! command -v cmake >/dev/null 2>&1; then
+        missing_deps+=("cmake")
+    fi
+    
+    if ! command -v python3 >/dev/null 2>&1; then
+        missing_deps+=("python3")
+    fi
+    
+    if ! command -v pip3 >/dev/null 2>&1 && ! command -v pip >/dev/null 2>&1; then
+        missing_deps+=("python3-pip")
+    fi
+    
+    # Для Linux проверяем дополнительные зависимости
+    if [ "$os_type" != "Darwin" ]; then
+        if ! command -v make >/dev/null 2>&1; then
+            missing_deps+=("build-essential")
+        fi
+        
+        if ! command -v gcc >/dev/null 2>&1; then
+            missing_deps+=("gcc")
+        fi
+        
+        # Проверяем libusb для работы с ESP32
+        if ! ldconfig -p | grep -q libusb; then
+            missing_deps+=("libusb-1.0-0-dev")
+        fi
+    fi
+    
+    if [ ${#missing_deps[@]} -eq 0 ]; then
+        echo -e "${GREEN}✅ Все системные зависимости установлены${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}⚠️  Отсутствуют зависимости: ${missing_deps[*]}${NC}"
+        echo -e "${BLUE}💡 Хотите установить их автоматически?${NC}"
+        read -p "Установить недостающие зависимости? (Y/n): " -n 1 -r
+        echo
+        
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            return $(install_system_dependencies "${missing_deps[@]}")
+        else
+            echo -e "${CYAN}Установите вручную:${NC}"
+            if [ "$os_type" = "Darwin" ]; then
+                echo -e "${YELLOW}macOS: brew install ${missing_deps[*]}${NC}"
+            else
+                echo -e "${YELLOW}Ubuntu/Debian: sudo apt install ${missing_deps[*]}${NC}"
+                echo -e "${YELLOW}CentOS/RHEL: sudo yum install ${missing_deps[*]}${NC}"
+            fi
+            return 1
+        fi
+    fi
+}
+
+# Функция для установки системных зависимостей
+install_system_dependencies() {
+    local deps=("$@")
+    local os_type=$(uname)
+    
+    echo -e "${BLUE}🔧 Установка системных зависимостей...${NC}"
+    
+    if [ "$os_type" = "Darwin" ]; then
+        echo -e "${BLUE}🍎 Установка зависимостей для macOS...${NC}"
+        if command -v brew >/dev/null 2>&1; then
+            brew install "${deps[@]}"
+        else
+            echo -e "${RED}❌ Homebrew не найден. Установите brew сначала${NC}"
+            return 1
+        fi
+    else
+        echo -e "${BLUE}🐧 Установка зависимостей для Linux...${NC}"
+        
+        # Определяем дистрибутив и устанавливаем пакеты
+        if command -v apt >/dev/null 2>&1; then
+            echo -e "${CYAN}Обновление списка пакетов...${NC}"
+            sudo apt update
+            echo -e "${CYAN}Установка: ${deps[*]}${NC}"
+            
+            # Преобразуем некоторые имена пакетов для apt
+            local apt_deps=()
+            for dep in "${deps[@]}"; do
+                case "$dep" in
+                    "python3-pip")
+                        apt_deps+=("python3-pip")
+                        ;;
+                    "build-essential")
+                        apt_deps+=("build-essential")
+                        ;;
+                    "libusb-1.0-0-dev")
+                        apt_deps+=("libusb-1.0-0-dev")
+                        ;;
+                    *)
+                        apt_deps+=("$dep")
+                        ;;
+                esac
+            done
+            
+            sudo apt install -y "${apt_deps[@]}"
+            
+        elif command -v yum >/dev/null 2>&1; then
+            echo -e "${CYAN}Установка через yum: ${deps[*]}${NC}"
+            # Преобразуем имена пакетов для yum
+            local yum_deps=()
+            for dep in "${deps[@]}"; do
+                case "$dep" in
+                    "python3-pip")
+                        yum_deps+=("python3-pip")
+                        ;;
+                    "build-essential")
+                        yum_deps+=("gcc" "gcc-c++" "make")
+                        ;;
+                    "libusb-1.0-0-dev")
+                        yum_deps+=("libusb1-devel")
+                        ;;
+                    *)
+                        yum_deps+=("$dep")
+                        ;;
+                esac
+            done
+            sudo yum install -y "${yum_deps[@]}"
+            
+        elif command -v dnf >/dev/null 2>&1; then
+            echo -e "${CYAN}Установка через dnf: ${deps[*]}${NC}"
+            # Преобразуем имена пакетов для dnf
+            local dnf_deps=()
+            for dep in "${deps[@]}"; do
+                case "$dep" in
+                    "python3-pip")
+                        dnf_deps+=("python3-pip")
+                        ;;
+                    "build-essential")
+                        dnf_deps+=("gcc" "gcc-c++" "make")
+                        ;;
+                    "libusb-1.0-0-dev")
+                        dnf_deps+=("libusb1-devel")
+                        ;;
+                    *)
+                        dnf_deps+=("$dep")
+                        ;;
+                esac
+            done
+            sudo dnf install -y "${dnf_deps[@]}"
+        else
+            echo -e "${RED}❌ Неизвестный пакетный менеджер${NC}"
+            return 1
+        fi
+    fi
+    
+    echo -e "${GREEN}✅ Системные зависимости установлены${NC}"
+    return 0
+}
+
 # Функция для автоматической установки Bluetooth пакетов
 install_bluetooth_packages() {
     local os_type=$(uname)
@@ -723,7 +885,16 @@ offer_cleanup() {
 main() {
     print_header
     
+    # Проверяем системные зависимости
+    echo ""
+    if ! check_system_dependencies; then
+        echo -e "${RED}❌ Не удалось установить системные зависимости${NC}"
+        echo -e "${YELLOW}Установите их вручную и запустите скрипт снова${NC}"
+        exit 1
+    fi
+    
     # Проверяем ESP-IDF
+    echo ""
     if check_esp_idf; then
         echo -e "${GREEN}✅ ESP-IDF актуален${NC}"
     else
