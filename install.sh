@@ -80,7 +80,11 @@ check_system_dependencies() {
         echo
         
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-            return $(install_system_dependencies "${missing_deps[@]}")
+            if install_system_dependencies "${missing_deps[@]}"; then
+                return 0
+            else
+                return 1
+            fi
         else
             echo -e "${CYAN}Установите вручную:${NC}"
             if [ "$os_type" = "Darwin" ]; then
